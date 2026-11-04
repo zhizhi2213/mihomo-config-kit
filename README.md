@@ -1,0 +1,82 @@
+# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party 通用增强版)
+
+基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本，并自动注入以下两项通用增强补丁：
+
+1. **节点超时与 DNS 循环死锁修复补丁**
+   - 解决部分机场订阅自带 `proxy-server-nameserver: [udp://127.0.0.1:7874]` 配合 `hosts` CNAME 重定向（如 `*.aws-agent.org` -> `*.apt-agent.org`）与上游脚本 `respect-rules: true` 产生的循环死锁（导致全部节点测速 Timeout）。
+   - 将节点入口域名强制通过国内高速 DNS（`223.5.5.5` / `119.29.29.29`）直连解析。
+   - 补充 `TRAFFIC` 关键词到无效信息节点过滤正则，自动剔除 `"Traffic: xx GB | xx GB"` 流量统计假节点。
+2. **本地 Hosts 与内网开发直连通用补丁**
+   - 开启 `dns.use-system-hosts = true`，支持使用 SwitchHosts 或修改本地 `/etc/hosts` 实时切换任意开发/测试环境域名。
+   - 在分流规则最顶部插入私有内网网段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，不带 `no-resolve`）`DIRECT` 直连规则，任何在 `/etc/hosts` 中指向内网 IP 的域名均可自动触发本地解析并直连。
+   - 将上述内网网段加入 `sniffer.skip-dst-address`，防止已解析为内网 IP 的流量被 Sniffer 重新还原为域名。
+
+---
+
+## 一键导入脚本链接
+
+### 1. FlClash（标准 Mihomo 内核）
+
+- **精简路径 Raw 链接（推荐）**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/FlClash.js
+  ```
+- **jsDelivr CDN 加速链接（免代理直连导入）**：
+  ```text
+  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/FlClash.js
+  ```
+- **与上游一致的原路径链接**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/FlClash/FlClash%28mihomo%29.js
+  ```
+
+---
+
+### 2. Clash Party（标准 Mihomo 内核）
+
+- **精简路径 Raw 链接（推荐）**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/ClashParty.js
+  ```
+- **jsDelivr CDN 加速链接**：
+  ```text
+  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/ClashParty.js
+  ```
+- **与上游一致的原路径链接**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/Clash%20Party/ClashParty%28mihomo%29.js
+  ```
+
+---
+
+### 3. Clash Party（Mihomo Smart 内核）
+
+- **精简路径 Raw 链接（推荐）**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/ClashParty-Smart.js
+  ```
+- **jsDelivr CDN 加速链接**：
+  ```text
+  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/ClashParty-Smart.js
+  ```
+- **与上游一致的原路径链接**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/Clash%20Party/ClashParty%28mihomo-smart%29.js
+  ```
+
+---
+
+## 文档与教程
+
+- 📖 **[FlClash / Mihomo 覆写脚本从入门到精通指南 (`docs/SCRIPT_GUIDE.md`)](./docs/SCRIPT_GUIDE.md)**：图文拆解 1750 行覆写脚本的 8 步执行流水线、核心数据结构、DNS 死锁原理与本地 Hosts 补丁写法。
+
+---
+
+## 本地构建
+
+如需在本地重新拉取上游最新脚本并构建：
+
+```bash
+node scripts/build.js
+```
+提交推送到 GitHub 后，GitHub Actions 也会自动重新构建并校验所有脚本。

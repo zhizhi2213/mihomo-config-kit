@@ -1,0 +1,43 @@
+name: Sync & Patch Upstream Scripts
+
+on:
+  schedule:
+    # 每天北京时间 04:00 自动同步上游最新脚本并重新打补丁
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch upstream & apply patches
+        run: node scripts/build.js
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/ "Mihomo内核系/"
+          if git diff --staged --quiet; then
+            echo "No upstream changes detected."
+          else
+            git commit -m "chore: sync upstream Smart-Config-Kit and apply custom patches"
+            git push
+          fi
