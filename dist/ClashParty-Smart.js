@@ -127,7 +127,7 @@ var SckiSubscriptionNodeFilter = (function() {
   'use strict'
 
   var INFO_TEXT = ['导航网址', '距离下次重置', '剩余流量', '套餐到期', '网址导航', '官网', '订阅', '到期', '剩余', '重置', '免费', '试用', '应急', '已用流量', '到期时间', '下次重置']
-  var INFO_RE = /\b(?:TRAFFIC|USE|USED|TOTAL|EXPIRE|EMAIL|Panel|Channel|Author|Sign|Login|Register|Help|FAQ)\b/i
+  var INFO_RE = /\b(?:USE|USED|TOTAL|EXPIRE|EMAIL|Panel|Channel|Author|Sign|Login|Register|Help|FAQ)\b/i
   var DIALER_BUILTIN = ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE']
   var RESERVED_BUILTIN = DIALER_BUILTIN.concat(['GLOBAL', 'PASS-RULE'])
   var NUMBER = '(?:[0-9]+(?:\\.[0-9]+)?)'
@@ -1716,34 +1716,9 @@ function main(config) {
     SckiTrafficOptions.applyBrowserUdpPolicy(config.rules, SCKI_BROWSER_UDP_POLICY)
     sortProxyGroups(config)
 
-    // === [Custom Patch] 修复节点 DNS 循环死锁 + 开启本地 Hosts 与内网直连 ===
+    // === [Custom Patch] 开启本地 Hosts 与内网开发直连 ===
     if (config.dns) {
       config.dns["use-system-hosts"] = true;
-      // 移除订阅自带的 udp://127.0.0.1:7874 自指策略，避免配合 respect-rules: true 与 hosts CNAME 产生循环死锁导致全部节点超时
-      delete config.dns["proxy-server-nameserver-policy"];
-      config.dns["proxy-server-nameserver"] = [
-        "223.5.5.5",
-        "119.29.29.29",
-        "https://dns.alidns.com/dns-query",
-        "https://doh.pub/dns-query"
-      ];
-      config.dns["default-nameserver"] = [
-        "223.5.5.5",
-        "119.29.29.29"
-      ];
-      if (!config.dns["nameserver-policy"] || typeof config.dns["nameserver-policy"] !== "object") {
-        config.dns["nameserver-policy"] = {};
-      }
-      config.dns["nameserver-policy"]["+.aws-agent.org"] = ["223.5.5.5", "119.29.29.29"];
-      config.dns["nameserver-policy"]["+.apt-agent.org"] = ["223.5.5.5", "119.29.29.29"];
-
-      if (Array.isArray(config.dns["fake-ip-filter"])) {
-        ["+.aws-agent.org", "+.apt-agent.org"].forEach(function(d) {
-          if (config.dns["fake-ip-filter"].indexOf(d) === -1) {
-            config.dns["fake-ip-filter"].push(d);
-          }
-        });
-      }
     }
     if (config.sniffer) {
       // 豁免所有内网网段的目标 IP 嗅探，防止本地 hosts 解析出的内网 IP 被 Sniffer 还原成域名
@@ -1759,8 +1734,6 @@ function main(config) {
     if (Array.isArray(config.rules)) {
       // 置顶内网网段直连规则（不加 no-resolve，自动触发本地 /etc/hosts 解析并直连）
       config.rules.unshift(
-        "DOMAIN-SUFFIX,aws-agent.org,DIRECT",
-        "DOMAIN-SUFFIX,apt-agent.org,DIRECT",
         "IP-CIDR,127.0.0.0/8,DIRECT",
         "IP-CIDR,10.0.0.0/8,DIRECT",
         "IP-CIDR,172.16.0.0/12,DIRECT",

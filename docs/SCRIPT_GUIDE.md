@@ -216,102 +216,61 @@ var groups = [
 
 ---
 
-### 第 6 块：我们打上去的定制补丁（第 1706~1760 行）
+### 第 6 块：我们打上去的定制补丁（第 1705~1732 行）
 
-这也是最关键的部分！为什么原版脚本在你电脑上会出现**「所有节点超时」**以及**「本地 `/etc/hosts` 不生效」**？我们注入的补丁又是怎么修好它的？
+为什么原版脚本在你电脑上会出现**「本地 `/etc/hosts` 不生效」**？我们注入的极简通用补丁是怎么解决它的？
 
 请看我们在 `sortProxyGroups(config)` 后面注入的代码，逐行解释：
 
 ```javascript
-    // === [Custom Patch] 修复节点 DNS 循环死锁 + 开启本地 Hosts 与内网开发域名直连 ===
+    // === [Custom Patch] 开启本地 Hosts 与内网开发直连 ===
     if (config.dns) {
       // 【补丁 1】开启读取系统本地 /etc/hosts（原版脚本第 1369 行写死了 false）
       config.dns["use-system-hosts"] = true;
-
-      // 【补丁 2：打破节点解析死锁】
-      // 你的机场订阅里写着 proxy-server-nameserver: [udp://127.0.0.1:7874]，
-      // 并且通过 hosts 把节点域名 *.aws-agent.org 重定向到了 *.apt-agent.org。
-      // 而原版脚本开启了 respect-rules: true（DNS 查询也要走分流规则）。
-      // 结果：连节点前先查 127.0.0.1:7874 -> 变成查 *.apt-agent.org -> 命中代理规则 -> 试图走代理节点去查节点自己的 IP -> 死锁超时！
-      delete config.dns["proxy-server-nameserver-policy"];
-
-      // 强制让所有节点入口域名直接走国内 223.5.5.5 / 119.29.29.29 解析，不经过分流规则
-      config.dns["proxy-server-nameserver"] = [
-        "223.5.5.5",
-        "119.29.29.29",
-        "https://dns.alidns.com/dns-query",
-        "https://doh.pub/dns-query"
-      ];
-      config.dns["default-nameserver"] = [
-        "223.5.5.5",
-        "119.29.29.29"
-      ];
-
-      // 显式指定节点入口域名走国内 DNS，你的内网开发域名优先走系统 DNS (system)
-      config.dns["nameserver-policy"]["+.aws-agent.org"] = ["223.5.5.5", "119.29.29.29"];
-      config.dns["nameserver-policy"]["+.apt-agent.org"] = ["223.5.5.5", "119.29.29.29"];
-      config.dns["nameserver-policy"]["+.dev.example.com"] = ["system", "223.5.5.5"];
-      config.dns["nameserver-policy"]["+.internal.example.com"] = ["system", "223.5.5.5"];
-
-      // 【补丁 3：豁免 Fake-IP】
-      // 防止开启 TUN 模式时，把你的内网域名解析成 198.18.0.x 的假 IP
-      if (Array.isArray(config.dns["fake-ip-filter"])) {
-        ["+.aws-agent.org", "+.apt-agent.org", "+.dev.example.com", "+.internal.example.com", "dev.example.com", "internal.example.com"].forEach(function(d) {
-          if (config.dns["fake-ip-filter"].indexOf(d) === -1) {
-            config.dns["fake-ip-filter"].push(d);
-          }
-        });
-      }
     }
 
-    // 【补丁 4：跳过流量嗅探覆写】
+    // 【补丁 2：豁免内网目标 IP 的流量嗅探】
     // 原版脚本开启了 sniffer.override-destination = true。
-    // 如果不把内网域名加入 skip-domain，当你通过本地 hosts 访问内网 IP 时，
-    // 内核嗅探到 HTTP Host 是 *.internal.example.com，会强行把目标 IP 改回域名去查公网 DNS！
+    // 将所有内网网段加入 skip-dst-address，防止通过本地 hosts 解析出的内网 IP 被 Sniffer 重新还原成域名去查公网 DNS！
     if (config.sniffer) {
-      if (!Array.isArray(config.sniffer["skip-domain"])) {
-        config.sniffer["skip-domain"] = [];
+      if (!Array.isArray(config.sniffer["skip-dst-address"])) {
+        config.sniffer["skip-dst-address"] = [];
       }
-      ["+.dev.example.com", "+.internal.example.com"].forEach(function(d) {
-        if (config.sniffer["skip-domain"].indexOf(d) === -1) {
-          config.sniffer["skip-domain"].push(d);
+      ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].forEach(function(cidr) {
+        if (config.sniffer["skip-dst-address"].indexOf(cidr) === -1) {
+          config.sniffer["skip-dst-address"].push(cidr);
         }
       });
     }
 
-    // 【补丁 5：最高优先级直连规则】
-    // 用 unshift 插到 rules 数组的最前面（第 0 位），确保内网域名和内网 IP 100% 走 DIRECT 直连
-    // 注意 IP-CIDR 故意不加 no-resolve，这样未列出的其他内网域名也会先触发本地 hosts 解析出内网 IP 然后直连
+    // 【补丁 3：最高优先级内网直连规则】
+    // 用 unshift 插到 rules 数组的最前面（第 0 位）。
+    // 注意 IP-CIDR 故意不加 no-resolve，这样任何在 /etc/hosts 中指向内网 IP 的域名都会自动触发本地解析并走 DIRECT 直连！
     if (Array.isArray(config.rules)) {
       config.rules.unshift(
-        "DOMAIN-SUFFIX,aws-agent.org,DIRECT",
-        "DOMAIN-SUFFIX,apt-agent.org,DIRECT",
-        "DOMAIN-SUFFIX,dev.example.com,DIRECT",
-        "DOMAIN-SUFFIX,internal.example.com,DIRECT",
         "IP-CIDR,127.0.0.0/8,DIRECT",
         "IP-CIDR,10.0.0.0/8,DIRECT",
         "IP-CIDR,172.16.0.0/12,DIRECT",
         "IP-CIDR,192.168.0.0/16,DIRECT"
       );
     }
+    // === [Custom Patch End] ===
 ```
 
 ---
 
 ## 五、看懂自动化构建脚本 [`scripts/build.js`](../scripts/build.js)
 
-为了让你既能跟进上游原作者的规则更新，又不用每次手动去改 1700 行代码，我们写了 [`scripts/build.js`](../scripts/build.js)。它的逻辑非常清晰，只有 4 步：
+为了让你既能 100% 跟进上游原作者的规则和 DNS 更新，又不用每次手动去改 1700 行代码，我们写了 [`scripts/build.js`](../scripts/build.js)。它的逻辑非常清晰，只有 4 步：
 
 1. **下载上游源码 (`fetchUrl`)**：
    用 `curl` 把上游 GitHub 仓库里的 `FlClash(mihomo).js`、`ClashParty(mihomo).js`、`ClashParty(mihomo-smart).js` 下载到内存中。
 2. **定位锚点并注入补丁 (`applyPatches`)**：
-   - 找到 `var INFO_RE = ...` 这一行，把 `TRAFFIC|` 替换进去。
-   - 找到 `sortProxyGroups(config)` 这一行，把我们的 `buildPatchSnippet()` 补丁代码拼接到它下面。
+   找到 `sortProxyGroups(config)` 这一行，把我们的 `buildPatchSnippet()` 本地 Hosts 补丁代码拼接到它下面。
 3. **沙箱模拟运行自检 (`verifyPatchedScript`)**：
    使用 Node.js 内置的 `vm` 模块，构造一份模拟的机场订阅 `mockConfig`，真实跑一遍生成的 `main(mockConfig)`，自动检查：
    - `use-system-hosts` 是不是变成了 `true`？
-   - `"Traffic: 3.3 GB | 150 GB"` 假节点是不是被过滤掉了？
-   - `internal.example.com` 直连规则是不是在 `rules` 里？
+   - 内网 `IP-CIDR` 直连规则是不是已经在 `rules` 里？
    只有全部检查通过，才允许写入文件，防止上游大改版导致生成的脚本报错。
 4. **写入文件 (`dist/` 与原路径)**：
    把生成的脚本保存到 `dist/FlClash.js` 等目录，再由 GitHub Actions 自动推送到仓库。
@@ -320,24 +279,13 @@ var groups = [
 
 ## 六、动手速查表：以后你想改脚本时改哪里？
 
-### 场景 1：我想新增一个走本地 Hosts 的内网域名（比如 `mytest.com`）
-直接打开 [`scripts/build.js`](../scripts/build.js) 第 15 行，加一行字符串即可：
-```javascript
-const CUSTOM_DEV_DOMAINS = [
-  "dev.example.com",
-  "internal.example.com",
-  "mytest.com", // <--- 新增这里
-];
-```
-然后终端运行 `node scripts/build.js` 就会自动重新生成全部脚本。
-
-### 场景 2：我想强制某个网站（比如 `javdb.com`）走特定分组（比如 `🇯🇵 日韩节点`）
+### 场景 1：我想强制某个公网网站（比如 `javdb.com`）走特定分组（比如 `🇯🇵 日韩节点`）
 只需要在 `config.rules.unshift(...)` 里加一条规则：
 ```javascript
 "DOMAIN-SUFFIX,javdb.com,🇯🇵 日韩节点",
 ```
 
-### 场景 3：常用的 Clash 规则语法速查
+### 场景 2：常用的 Clash 规则语法速查
 * `DOMAIN-SUFFIX,google.com,策略组名`：匹配域名后缀（含 `google.com` 及 `mail.google.com`）
 * `DOMAIN-KEYWORD,openai,策略组名`：只要域名里包含 `openai` 这几个字母就匹配
 * `DOMAIN,www.example.com,策略组名`：精确匹配完整域名

@@ -1,15 +1,10 @@
-# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party 通用增强版)
+# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party 本地 Hosts 增强版)
 
-基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本，并自动注入以下两项通用增强补丁：
+基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本，在 **100% 保留上游原有节点适配与 DNS 架构**的基础上，自动注入**本地 Hosts 与内网开发直连通用补丁**：
 
-1. **节点超时与 DNS 循环死锁修复补丁**
-   - 解决部分机场订阅自带 `proxy-server-nameserver: [udp://127.0.0.1:7874]` 配合 `hosts` CNAME 重定向（如 `*.aws-agent.org` -> `*.apt-agent.org`）与上游脚本 `respect-rules: true` 产生的循环死锁（导致全部节点测速 Timeout）。
-   - 将节点入口域名强制通过国内高速 DNS（`223.5.5.5` / `119.29.29.29`）直连解析。
-   - 补充 `TRAFFIC` 关键词到无效信息节点过滤正则，自动剔除 `"Traffic: xx GB | xx GB"` 流量统计假节点。
-2. **本地 Hosts 与内网开发直连通用补丁**
-   - 开启 `dns.use-system-hosts = true`，支持使用 SwitchHosts 或修改本地 `/etc/hosts` 实时切换任意开发/测试环境域名。
-   - 在分流规则最顶部插入私有内网网段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，不带 `no-resolve`）`DIRECT` 直连规则，任何在 `/etc/hosts` 中指向内网 IP 的域名均可自动触发本地解析并直连。
-   - 将上述内网网段加入 `sniffer.skip-dst-address`，防止已解析为内网 IP 的流量被 Sniffer 重新还原为域名。
+- **开启系统 Hosts**：设置 `dns.use-system-hosts = true`，支持使用 SwitchHosts 或修改本地 `/etc/hosts` 实时切换任意开发/测试环境域名。
+- **置顶内网网段直连规则**：在分流规则最顶部插入私有内网网段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，不带 `no-resolve`）`DIRECT` 直连规则，任何在 `/etc/hosts` 中指向内网 IP 的域名均可自动触发本地解析并直连。
+- **豁免内网目标 IP 嗅探**：将上述内网网段加入 `sniffer.skip-dst-address`，防止已解析为内网 IP 的流量被 Sniffer 重新还原为域名。
 
 ---
 
@@ -68,7 +63,7 @@
 
 ## 文档与教程
 
-- 📖 **[FlClash / Mihomo 覆写脚本从入门到精通指南 (`docs/SCRIPT_GUIDE.md`)](./docs/SCRIPT_GUIDE.md)**：图文拆解 1750 行覆写脚本的 8 步执行流水线、核心数据结构、DNS 死锁原理与本地 Hosts 补丁写法。
+- 📖 **[FlClash / Mihomo 覆写脚本从入门到精通指南 (`docs/SCRIPT_GUIDE.md`)](./docs/SCRIPT_GUIDE.md)**：图文拆解 1700+ 行覆写脚本的 8 步执行流水线、核心数据结构与本地 Hosts 补丁写法。
 
 ---
 
