@@ -5,6 +5,20 @@
 - **开启系统 Hosts**：设置 `dns.use-system-hosts = true`，支持使用 SwitchHosts 或修改本地 `/etc/hosts` 实时切换任意开发/测试环境域名。
 - **置顶内网网段直连规则**：在分流规则最顶部插入私有内网网段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，不带 `no-resolve`）`DIRECT` 直连规则，任何在 `/etc/hosts` 中指向内网 IP 的域名均可自动触发本地解析并直连。
 - **豁免内网目标 IP 嗅探**：将上述内网网段加入 `sniffer.skip-dst-address`，防止已解析为内网 IP 的流量被 Sniffer 重新还原为域名。
+- **置顶自定义直连域名**：读取 [`config/direct-domains.txt`](./config/direct-domains.txt)，把清单里的域名规则插到**所有 RULE-SET 之前**，用于修复上游规则集误杀（如 `scki-fused-010-ad-domain` 把 `doubao.com` 判为广告）或图片 CDN 走代理加载失败的问题。
+
+### 维护直连域名清单
+
+改 [`config/direct-domains.txt`](./config/direct-domains.txt) 即可，无需动代码，支持三种写法：
+
+```text
+doubao.com                                   # 简写，自动补成 DOMAIN-SUFFIX,doubao.com,DIRECT
+DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
+# 井号开头为注释
+```
+
+提交后 GitHub Actions 会自动重建 `dist/` 与 `Mihomo内核系/` 下的全部产物；本地可用
+`node scripts/build.js` 手动重建（构建时会自动校验清单是否被正确置顶）。
 
 ---
 

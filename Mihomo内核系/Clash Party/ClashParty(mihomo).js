@@ -1664,7 +1664,7 @@ function main(config) {
       );
     }
     if (Array.isArray(config.rules)) {
-      // 置顶豆包/字节系域名直连，优先级高于所有 RULE-SET（含 scki-fused-010-ad-domain 的误杀）
+      // 置顶直连域名规则（来自 config/direct-domains.txt），优先级高于所有 RULE-SET
       config.rules.unshift(
         "DOMAIN-SUFFIX,doubao.com,DIRECT",
         "DOMAIN-SUFFIX,doubaocdn.com,DIRECT",
@@ -1674,6 +1674,8 @@ function main(config) {
         "DOMAIN-SUFFIX,bytednsdoc.com,DIRECT",
         "DOMAIN-SUFFIX,bytecdntp.com,DIRECT",
         "DOMAIN-SUFFIX,bytetos.com,DIRECT",
+        "DOMAIN-SUFFIX,douyinpic.com,DIRECT",
+        "DOMAIN-SUFFIX,douyinstatic.com,DIRECT",
         "DOMAIN-SUFFIX,volccdn.com,DIRECT",
         "DOMAIN-SUFFIX,volces.com,DIRECT",
         "DOMAIN-SUFFIX,volcengine.com,DIRECT",
@@ -1682,9 +1684,7 @@ function main(config) {
         "DOMAIN-SUFFIX,zijieapi.com,DIRECT",
         "DOMAIN-SUFFIX,ibytedapm.com,DIRECT",
         "DOMAIN-SUFFIX,bytedance.com,DIRECT",
-        "DOMAIN-SUFFIX,bytedance.net,DIRECT",
-        "DOMAIN-SUFFIX,douyinpic.com,DIRECT",
-        "DOMAIN-SUFFIX,douyinstatic.com,DIRECT"
+        "DOMAIN-SUFFIX,bytedance.net,DIRECT"
       );
     }
     // === [Custom Patch End] ===

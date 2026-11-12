@@ -1,0 +1,38 @@
+# ============================================================
+# 置顶直连域名清单（构建时注入到 rules 最顶部，优先级高于所有 RULE-SET）
+# ------------------------------------------------------------
+# 语法：
+#   1) 只写域名          -> 自动补成 DOMAIN-SUFFIX,<域名>,DIRECT
+#        例：doubao.com
+#   2) 写完整规则行      -> 原样使用（行内含逗号即视为完整规则）
+#        例：DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT
+#   3) # 开头为注释，行尾 # 后也为注释
+# 修改后提交，GitHub Actions 会自动重建 dist/ 与 Mihomo内核系/ 下的脚本。
+# ============================================================
+
+# --- 豆包 / 字节系：上游 scki-fused-010-ad-domain 把 doubao.com 误判成广告并 REJECT ---
+doubao.com
+doubaocdn.com
+
+# --- 字节图片 / 静态资源 CDN：走代理节点会加载失败 ---
+byteimg.com
+bytescm.com
+bytegoofy.com
+bytednsdoc.com
+bytecdntp.com
+bytetos.com
+douyinpic.com
+douyinstatic.com
+
+# --- 火山引擎 / 字节云服务 ---
+volccdn.com
+volces.com
+volcengine.com
+
+# --- 字节 API / 埋点 / 数据域 ---
+snssdk.com
+pstatp.com
+zijieapi.com
+ibytedapm.com
+bytedance.com
+bytedance.net
