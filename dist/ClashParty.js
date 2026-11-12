@@ -1663,6 +1663,30 @@ function main(config) {
         "IP-CIDR,192.168.0.0/16,DIRECT"
       );
     }
+    if (Array.isArray(config.rules)) {
+      // 置顶豆包/字节系域名直连，优先级高于所有 RULE-SET（含 scki-fused-010-ad-domain 的误杀）
+      config.rules.unshift(
+        "DOMAIN-SUFFIX,doubao.com,DIRECT",
+        "DOMAIN-SUFFIX,doubaocdn.com,DIRECT",
+        "DOMAIN-SUFFIX,byteimg.com,DIRECT",
+        "DOMAIN-SUFFIX,bytescm.com,DIRECT",
+        "DOMAIN-SUFFIX,bytegoofy.com,DIRECT",
+        "DOMAIN-SUFFIX,bytednsdoc.com,DIRECT",
+        "DOMAIN-SUFFIX,bytecdntp.com,DIRECT",
+        "DOMAIN-SUFFIX,bytetos.com,DIRECT",
+        "DOMAIN-SUFFIX,volccdn.com,DIRECT",
+        "DOMAIN-SUFFIX,volces.com,DIRECT",
+        "DOMAIN-SUFFIX,volcengine.com,DIRECT",
+        "DOMAIN-SUFFIX,snssdk.com,DIRECT",
+        "DOMAIN-SUFFIX,pstatp.com,DIRECT",
+        "DOMAIN-SUFFIX,zijieapi.com,DIRECT",
+        "DOMAIN-SUFFIX,ibytedapm.com,DIRECT",
+        "DOMAIN-SUFFIX,bytedance.com,DIRECT",
+        "DOMAIN-SUFFIX,bytedance.net,DIRECT",
+        "DOMAIN-SUFFIX,douyinpic.com,DIRECT",
+        "DOMAIN-SUFFIX,douyinstatic.com,DIRECT"
+      );
+    }
     // === [Custom Patch End] ===
     console.log(`[${VERSION}] Done! Groups: ${config['proxy-groups'].length}, Rules: ${config.rules.length}, Providers: ${Object.keys(config['rule-providers']).length}`)
     return config

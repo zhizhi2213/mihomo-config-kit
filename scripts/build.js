@@ -21,6 +21,30 @@ const PRIVATE_CIDRS = [
   "192.168.0.0/16",
 ];
 
+// 豆包/字节系域名强制直连：上游 scki-fused-010-ad-domain 把 doubao.com 收进了广告名单，
+// 导致 mcs.doubao.com 等被 REJECT；同时图片 CDN(byteimg/bytecdn/volccdn) 走代理会加载失败。
+const DIRECT_DOMAINS = [
+  "doubao.com",
+  "doubaocdn.com",
+  "byteimg.com",
+  "bytescm.com",
+  "bytegoofy.com",
+  "bytednsdoc.com",
+  "bytecdntp.com",
+  "bytetos.com",
+  "volccdn.com",
+  "volces.com",
+  "volcengine.com",
+  "snssdk.com",
+  "pstatp.com",
+  "zijieapi.com",
+  "ibytedapm.com",
+  "bytedance.com",
+  "bytedance.net",
+  "douyinpic.com",
+  "douyinstatic.com",
+];
+
 const TARGETS = [
   {
     name: "FlClash (标准 Mihomo 内核)",
@@ -64,6 +88,7 @@ function fetchUrl(url) {
 function buildPatchSnippet() {
   const privateCidrsStr = PRIVATE_CIDRS.map((c) => `"${c}"`).join(", ");
   const directRules = PRIVATE_CIDRS.map((c) => `        "IP-CIDR,${c},DIRECT"`).join(",\n");
+  const directDomainRules = DIRECT_DOMAINS.map((d) => `        "DOMAIN-SUFFIX,${d},DIRECT"`).join(",\n");
 
   return `
     // === [Custom Patch] 开启本地 Hosts 与内网开发直连 ===
@@ -85,6 +110,12 @@ function buildPatchSnippet() {
       // 置顶内网网段直连规则（不加 no-resolve，自动触发本地 /etc/hosts 解析并直连）
       config.rules.unshift(
 ${directRules}
+      );
+    }
+    if (Array.isArray(config.rules)) {
+      // 置顶豆包/字节系域名直连，优先级高于所有 RULE-SET（含 scki-fused-010-ad-domain 的误杀）
+      config.rules.unshift(
+${directDomainRules}
       );
     }
     // === [Custom Patch End] ===`;
