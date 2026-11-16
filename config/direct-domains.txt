@@ -36,3 +36,9 @@ zijieapi.com
 ibytedapm.com
 bytedance.com
 bytedance.net
+
+# --- 钉钉：static.dingtalk.com 被按域名 REJECT（www/api/login 正常，仅静态资源域被拦），
+#     表现是页面框架能开、图片和 JS/CSS 全部加载失败 ---
+dingtalk.com
+dingtalkapps.com
+dingtalkcloud.com
