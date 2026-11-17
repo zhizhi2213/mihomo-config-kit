@@ -195,10 +195,15 @@ function loadDirectRules() {
   return rules;
 }
 
+/**
+ * 产物头部不再写入构建时间戳。
+ *
+ * 原因：时间戳会让同一份源码每次构建产生不同产物，CI 里就会不断出现
+ * 「只改了时间戳」的 bot 提交。产物新鲜度看 git 提交记录即可。
+ */
 function buildData() {
   return {
     version: VERSION,
-    buildTime: new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC",
     privateCidrs: PRIVATE_CIDRS,
     directRules: loadDirectRules(),
     fakeIpFilter: FAKE_IP_FILTER,
@@ -400,7 +405,6 @@ function generate() {
   const data = buildData();
   const header = `// ============================================================
 // mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
-// 生成时间：${data.buildTime}
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组
