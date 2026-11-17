@@ -1639,58 +1639,452 @@ function main(config) {
     SckiTrafficOptions.applyBrowserUdpPolicy(config.rules, SCKI_BROWSER_UDP_POLICY)
     sortProxyGroups(config)
 
-    // === [Custom Patch] 开启本地 Hosts 与内网开发直连 ===
-    if (config.dns) {
-      config.dns["use-system-hosts"] = true;
-    }
-    if (config.sniffer) {
-      // 豁免所有内网网段的目标 IP 嗅探，防止本地 hosts 解析出的内网 IP 被 Sniffer 还原成域名
-      if (!Array.isArray(config.sniffer["skip-dst-address"])) {
-        config.sniffer["skip-dst-address"] = [];
+    // === [Custom Patch] Local Hosts + 内网直连 + yfamilys 分流/去广告（数据由 scripts/build.js 注入） ===
+    // 注意：上游为无分号风格，前导分号防止 ASI 把 IIFE 解析成上一条语句的函数调用
+    ;(function () {
+      var D = {
+      "privateCidrs": [
+            "127.0.0.0/8",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16"
+      ],
+      "directRules": [
+            "DOMAIN-SUFFIX,doubao.com,DIRECT",
+            "DOMAIN-SUFFIX,doubaocdn.com,DIRECT",
+            "DOMAIN-SUFFIX,byteimg.com,DIRECT",
+            "DOMAIN-SUFFIX,bytescm.com,DIRECT",
+            "DOMAIN-SUFFIX,bytegoofy.com,DIRECT",
+            "DOMAIN-SUFFIX,bytednsdoc.com,DIRECT",
+            "DOMAIN-SUFFIX,bytecdntp.com,DIRECT",
+            "DOMAIN-SUFFIX,bytetos.com,DIRECT",
+            "DOMAIN-SUFFIX,douyinpic.com,DIRECT",
+            "DOMAIN-SUFFIX,douyinstatic.com,DIRECT",
+            "DOMAIN-SUFFIX,volccdn.com,DIRECT",
+            "DOMAIN-SUFFIX,volces.com,DIRECT",
+            "DOMAIN-SUFFIX,volcengine.com,DIRECT",
+            "DOMAIN-SUFFIX,snssdk.com,DIRECT",
+            "DOMAIN-SUFFIX,pstatp.com,DIRECT",
+            "DOMAIN-SUFFIX,zijieapi.com,DIRECT",
+            "DOMAIN-SUFFIX,ibytedapm.com,DIRECT",
+            "DOMAIN-SUFFIX,bytedance.com,DIRECT",
+            "DOMAIN-SUFFIX,bytedance.net,DIRECT",
+            "DOMAIN-SUFFIX,ctobsnssdk.com,DIRECT",
+            "DOMAIN-SUFFIX,dingtalk.com,DIRECT",
+            "DOMAIN-SUFFIX,dingtalkapps.com,DIRECT",
+            "DOMAIN-SUFFIX,dingtalkcloud.com,DIRECT"
+      ],
+      "regions": [
+            {
+                  "name": "🇭🇰 香港节点",
+                  "include": "港|hk|hong ?kong",
+                  "exclude": "美|us|台|tw|日|jp|新加坡|sg|韩|kr"
+            },
+            {
+                  "name": "🇨🇳 台湾节点",
+                  "include": "台|tw|taiwan",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇯🇵 日本节点",
+                  "include": "日|jp|japan|东京|大阪|tokyo|osaka",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇸🇬 新加坡节点",
+                  "include": "新加坡|狮城|sg|singapore",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇰🇷 韩国节点",
+                  "include": "韩|kr|korea|首尔|seoul",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇺🇸 美国节点",
+                  "include": "美|us|united ?states|america|洛杉矶|圣何塞|西雅图|凤凰城|los ?angeles|seattle|san ?jose",
+                  "exclude": "俄罗斯|russia|新加坡|singapore|韩国|korea|台湾|taiwan|香港|hong ?kong|日本|japan"
+            },
+            {
+                  "name": "🇬🇧 英国节点",
+                  "include": "英|uk|伦敦|london|manchester|曼彻斯特",
+                  "exclude": "乌克兰|ukraine"
+            },
+            {
+                  "name": "🇩🇪 德国节点",
+                  "include": "德|germany|柏林|慕尼黑|法兰克福|frankfurt",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇷🇺 俄罗斯节点",
+                  "include": "俄|russia|莫斯科|moscow|圣彼得堡",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇨🇦 加拿大节点",
+                  "include": "加拿大|canada|多伦多|温哥华|toronto|vancouver",
+                  "exclude": ""
+            },
+            {
+                  "name": "🇮🇳 印度节点",
+                  "include": "印度|india|孟买|mumbai|新德里|delhi",
+                  "exclude": ""
+            }
+      ],
+      "appGroups": [
+            {
+                  "name": "🛑 广告拦截",
+                  "style": "fixed",
+                  "proxies": [
+                        "REJECT",
+                        "DIRECT",
+                        "🚀 策略选择"
+                  ]
+            },
+            {
+                  "name": "🤖️ 人工智能",
+                  "style": "proxy"
+            },
+            {
+                  "name": "📲 Telegram",
+                  "style": "proxy"
+            },
+            {
+                  "name": "📹 YouTube",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🎥 Netflix",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🎬 Disney+",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🎻 Spotify",
+                  "style": "proxy"
+            },
+            {
+                  "name": "📄 Twitter",
+                  "style": "proxy"
+            },
+            {
+                  "name": "👤 Facebook",
+                  "style": "proxy"
+            },
+            {
+                  "name": "📖 Reddit",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🐦 Discord",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🪙 Paypal",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🎮 游戏平台",
+                  "style": "proxy"
+            },
+            {
+                  "name": "🍿 国外媒体",
+                  "style": "proxy"
+            },
+            {
+                  "name": "Ⓜ️ 微软服务",
+                  "style": "direct"
+            },
+            {
+                  "name": "🍎 苹果服务",
+                  "style": "direct"
+            },
+            {
+                  "name": "📽 哔哩哔哩",
+                  "style": "bilibili"
+            },
+            {
+                  "name": "🍔 国内媒体",
+                  "style": "direct"
+            },
+            {
+                  "name": "🍟 新浪微博",
+                  "style": "direct"
+            },
+            {
+                  "name": "🌐 全球直连",
+                  "style": "direct"
+            },
+            {
+                  "name": "🐟 漏网之鱼",
+                  "style": "final"
+            }
+      ],
+      "rulesets": [
+            {
+                  "key": "ai",
+                  "target": "🤖️ 人工智能"
+            },
+            {
+                  "key": "Microsoft",
+                  "target": "Ⓜ️ 微软服务"
+            },
+            {
+                  "key": "Apple",
+                  "target": "🍎 苹果服务"
+            },
+            {
+                  "key": "AppStore",
+                  "target": "🍎 苹果服务"
+            },
+            {
+                  "key": "AppleProxy",
+                  "target": "🚀 策略选择"
+            },
+            {
+                  "key": "Telegram",
+                  "target": "📲 Telegram"
+            },
+            {
+                  "key": "Weibo",
+                  "target": "🍟 新浪微博"
+            },
+            {
+                  "key": "WeChat",
+                  "target": "🌐 全球直连"
+            },
+            {
+                  "key": "Twitter",
+                  "target": "📄 Twitter"
+            },
+            {
+                  "key": "PlayStation",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Epic",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Sony",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Steam",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Nintendo",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "WanMeiShiJie",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Blizzard",
+                  "target": "🎮 游戏平台"
+            },
+            {
+                  "key": "Spotify",
+                  "target": "🎻 Spotify"
+            },
+            {
+                  "key": "PayPal",
+                  "target": "🪙 Paypal"
+            },
+            {
+                  "key": "Facebook",
+                  "target": "👤 Facebook"
+            },
+            {
+                  "key": "Reddit",
+                  "target": "📖 Reddit"
+            },
+            {
+                  "key": "Discord",
+                  "target": "🐦 Discord"
+            },
+            {
+                  "key": "YouTube",
+                  "target": "📹 YouTube"
+            },
+            {
+                  "key": "YouTubeMusic",
+                  "target": "📹 YouTube"
+            },
+            {
+                  "key": "Netflix",
+                  "target": "🎥 Netflix"
+            },
+            {
+                  "key": "Disney",
+                  "target": "🎬 Disney+"
+            },
+            {
+                  "key": "BiliBili",
+                  "target": "📽 哔哩哔哩"
+            },
+            {
+                  "key": "ChinaMedia",
+                  "target": "🍔 国内媒体"
+            },
+            {
+                  "key": "ProxyMedia",
+                  "target": "🍿 国外媒体"
+            },
+            {
+                  "key": "Twitch",
+                  "target": "🚀 策略选择"
+            },
+            {
+                  "key": "Douyu",
+                  "target": "🌐 全球直连"
+            },
+            {
+                  "key": "Google",
+                  "target": "🚀 策略选择"
+            },
+            {
+                  "key": "Proxy",
+                  "target": "🚀 策略选择"
+            },
+            {
+                  "key": "ASN-CN",
+                  "target": "🌐 全球直连"
+            }
+      ],
+      "G": {
+            "strategy": "🚀 策略选择",
+            "auto": "♻️ 自动选择",
+            "manual": "👐 手动选择",
+            "adblock": "🛑 广告拦截",
+            "ai": "🤖️ 人工智能",
+            "telegram": "📲 Telegram",
+            "youtube": "📹 YouTube",
+            "netflix": "🎥 Netflix",
+            "disney": "🎬 Disney+",
+            "spotify": "🎻 Spotify",
+            "twitter": "📄 Twitter",
+            "facebook": "👤 Facebook",
+            "reddit": "📖 Reddit",
+            "discord": "🐦 Discord",
+            "paypal": "🪙 Paypal",
+            "game": "🎮 游戏平台",
+            "foreignMedia": "🍿 国外媒体",
+            "microsoft": "Ⓜ️ 微软服务",
+            "apple": "🍎 苹果服务",
+            "bilibili": "📽 哔哩哔哩",
+            "cnMedia": "🍔 国内媒体",
+            "weibo": "🍟 新浪微博",
+            "direct": "🌐 全球直连",
+            "final": "🐟 漏网之鱼",
+            "hk": "🇭🇰 香港节点",
+            "tw": "🇨🇳 台湾节点"
+      },
+      "ruleBase": "https://yfamilys.com/rule",
+      "antiAdUrl": "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml"
+};
+      var cfg = config;
+
+      // --- 1. 开启本地 Hosts 与内网嗅探豁免 ---
+      if (cfg.dns) {
+        cfg.dns["use-system-hosts"] = true;
       }
-      ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"].forEach(function(cidr) {
-        if (config.sniffer["skip-dst-address"].indexOf(cidr) === -1) {
-          config.sniffer["skip-dst-address"].push(cidr);
+      if (cfg.sniffer) {
+        if (!Array.isArray(cfg.sniffer["skip-dst-address"])) {
+          cfg.sniffer["skip-dst-address"] = [];
         }
+        D.privateCidrs.forEach(function (c) {
+          if (cfg.sniffer["skip-dst-address"].indexOf(c) === -1) {
+            cfg.sniffer["skip-dst-address"].push(c);
+          }
+        });
+      }
+
+      // --- 2. 按节点名匹配区域组 ---
+      var names = (cfg.proxies || []).map(function (p) { return p.name; });
+      function match(include, exclude) {
+        var re = new RegExp(include, "i");
+        var neg = exclude ? new RegExp(exclude, "i") : null;
+        return names.filter(function (n) { return re.test(n) && !(neg && neg.test(n)); });
+      }
+      var regionNames = [];
+      var regionGroups = [];
+      D.regions.forEach(function (r) {
+        var matched = match(r.include, r.exclude);
+        if (!matched.length) return;
+        regionNames.push(r.name);
+        regionGroups.push({
+          name: r.name,
+          type: "url-test",
+          url: "http://cp.cloudflare.com/generate_204",
+          interval: 600,
+          tolerance: 50,
+          proxies: matched
+        });
       });
-    }
-    if (Array.isArray(config.rules)) {
-      // 置顶内网网段直连规则（不加 no-resolve，自动触发本地 /etc/hosts 解析并直连）
-      config.rules.unshift(
-        "IP-CIDR,127.0.0.0/8,DIRECT",
-        "IP-CIDR,10.0.0.0/8,DIRECT",
-        "IP-CIDR,172.16.0.0/12,DIRECT",
-        "IP-CIDR,192.168.0.0/16,DIRECT"
+
+      var nodeNames = names.length ? names.slice() : ["DIRECT"];
+      var strategyOptions = [D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
+      var proxyOptions = [D.G.strategy, D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
+      var directOptions = ["DIRECT", D.G.strategy];
+      var bilibiliOptions = ["DIRECT", D.G.strategy].concat(
+        regionGroups
+          .filter(function (g) { return g.name === D.G.hk || g.name === D.G.tw; })
+          .map(function (g) { return g.name; })
       );
-    }
-    if (Array.isArray(config.rules)) {
-      // 置顶直连域名规则（来自 config/direct-domains.txt），优先级高于所有 RULE-SET
-      config.rules.unshift(
-        "DOMAIN-SUFFIX,doubao.com,DIRECT",
-        "DOMAIN-SUFFIX,doubaocdn.com,DIRECT",
-        "DOMAIN-SUFFIX,byteimg.com,DIRECT",
-        "DOMAIN-SUFFIX,bytescm.com,DIRECT",
-        "DOMAIN-SUFFIX,bytegoofy.com,DIRECT",
-        "DOMAIN-SUFFIX,bytednsdoc.com,DIRECT",
-        "DOMAIN-SUFFIX,bytecdntp.com,DIRECT",
-        "DOMAIN-SUFFIX,bytetos.com,DIRECT",
-        "DOMAIN-SUFFIX,douyinpic.com,DIRECT",
-        "DOMAIN-SUFFIX,douyinstatic.com,DIRECT",
-        "DOMAIN-SUFFIX,volccdn.com,DIRECT",
-        "DOMAIN-SUFFIX,volces.com,DIRECT",
-        "DOMAIN-SUFFIX,volcengine.com,DIRECT",
-        "DOMAIN-SUFFIX,snssdk.com,DIRECT",
-        "DOMAIN-SUFFIX,pstatp.com,DIRECT",
-        "DOMAIN-SUFFIX,zijieapi.com,DIRECT",
-        "DOMAIN-SUFFIX,ibytedapm.com,DIRECT",
-        "DOMAIN-SUFFIX,bytedance.com,DIRECT",
-        "DOMAIN-SUFFIX,bytedance.net,DIRECT",
-        "DOMAIN-SUFFIX,ctobsnssdk.com,DIRECT",
-        "DOMAIN-SUFFIX,dingtalk.com,DIRECT",
-        "DOMAIN-SUFFIX,dingtalkapps.com,DIRECT",
-        "DOMAIN-SUFFIX,dingtalkcloud.com,DIRECT"
-      );
-    }
+
+      // --- 3. 重建代理组（整体替换上游融合分组） ---
+      var groups = [
+        { name: D.G.strategy, type: "select", proxies: strategyOptions },
+        { name: D.G.auto, type: "url-test", url: "http://cp.cloudflare.com/generate_204", interval: 600, tolerance: 50, proxies: nodeNames },
+        { name: D.G.manual, type: "select", proxies: nodeNames }
+      ].concat(regionGroups);
+      D.appGroups.forEach(function (a) {
+        if (a.style === "proxy") groups.push({ name: a.name, type: "select", proxies: proxyOptions });
+        else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
+        else if (a.style === "bilibili") groups.push({ name: a.name, type: "select", proxies: bilibiliOptions });
+        else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
+        else groups.push({ name: a.name, type: "select", proxies: a.proxies });
+      });
+      cfg["proxy-groups"] = groups;
+
+      // --- 4. 重建规则源：anti-AD 去广告 + yfamilys 全套分流 ---
+      var rp = {
+        "anti-ad": {
+          type: "http",
+          behavior: "classical",
+          format: "yaml",
+          url: D.antiAdUrl,
+          path: "./providers/rules/anti-ad.yaml",
+          interval: 86400
+        }
+      };
+      D.rulesets.forEach(function (rs) {
+        rp[rs.key] = {
+          type: "http",
+          behavior: "classical",
+          format: "yaml",
+          url: D.ruleBase + "/" + rs.key + ".rule",
+          path: "./providers/rules/" + rs.key + ".yaml",
+          interval: 86400
+        };
+      });
+      cfg["rule-providers"] = rp;
+
+      // --- 5. 重建规则：内网直连 → 白名单置顶 → 去广告 → 分流 → 兜底 ---
+      var rules = [];
+      D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+      D.directRules.forEach(function (r) { rules.push(r); });
+      rules.push("RULE-SET,anti-ad," + D.G.adblock);
+      D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
+      rules.push("GEOIP,CN," + D.G.direct);
+      rules.push("MATCH," + D.G.final);
+      cfg.rules = rules;
+    })();
     // === [Custom Patch End] ===
     console.log(`[${VERSION}] Done! Groups: ${config['proxy-groups'].length}, Rules: ${config.rules.length}, Providers: ${Object.keys(config['rule-providers']).length}`)
     return config

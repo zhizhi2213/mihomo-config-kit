@@ -1,11 +1,13 @@
-# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party 本地 Hosts 增强版)
+# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party — yfamilys 分流 + anti-AD 去广告版)
 
-基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本，在 **100% 保留上游原有节点适配与 DNS 架构**的基础上，自动注入**本地 Hosts 与内网开发直连通用补丁**：
+基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本。**只保留上游的节点适配与 DNS 架构**，其融合规则集和业务分组会被构建时注入的补丁**整体替换**为 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 式的分组与分流方案 + [anti-AD](https://anti-ad.net/) 去广告：
 
-- **开启系统 Hosts**：设置 `dns.use-system-hosts = true`，支持使用 SwitchHosts 或修改本地 `/etc/hosts` 实时切换任意开发/测试环境域名。
-- **置顶内网网段直连规则**：在分流规则最顶部插入私有内网网段（`127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，不带 `no-resolve`）`DIRECT` 直连规则，任何在 `/etc/hosts` 中指向内网 IP 的域名均可自动触发本地解析并直连。
-- **豁免内网目标 IP 嗅探**：将上述内网网段加入 `sniffer.skip-dst-address`，防止已解析为内网 IP 的流量被 Sniffer 重新还原为域名。
-- **置顶自定义直连域名**：读取 [`config/direct-domains.txt`](./config/direct-domains.txt)，把清单里的域名规则插到**所有 RULE-SET 之前**，用于修复上游规则集误杀（如 `scki-fused-010-ad-domain` 把 `doubao.com` 判为广告）或图片 CDN 走代理加载失败的问题。
+- **区域节点组**：`♻️ 自动选择`、`👐 手动选择`、`🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇺🇸 美 / 🇰🇷 韩 / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印` 区域 `url-test` 组 —— 按订阅节点名正则动态匹配，**无匹配节点的区域自动省略**，对任何机场通用。
+- **应用分流组**：`🚀 策略选择`、`🤖️ 人工智能`、`📲 Telegram`、`📹 YouTube`、`🎥 Netflix`、`🎬 Disney+`、`🎻 Spotify`、`📄 Twitter`、`👤 Facebook`、`📖 Reddit`、`🐦 Discord`、`🪙 Paypal`、`🎮 游戏平台`、`🍿 国外媒体`、`Ⓜ️ 微软服务`、`🍎 苹果服务`、`📽 哔哩哔哩`、`🍔 国内媒体`、`🍟 新浪微博`、`🌐 全球直连`、`🐟 漏网之鱼`（全部 `select`，可手动覆盖）。
+- **分流规则源**：anti-AD 去广告（`anti-ad-clash.yaml`）+ yfamilys 全套 `.rule`（mihomo 兼容 yaml payload，共 33 组，`RULE-SET` 顺序与 yfamilys 基础配置一致）。
+- **规则优先级**：`内网网段直连 → config/direct-domains.txt 白名单 → 去广告 → 分流 → GEOIP,CN → 漏网之鱼`。
+- **开启系统 Hosts**：`dns.use-system-hosts = true`，支持 SwitchHosts / `/etc/hosts` 实时切换开发环境。
+- **豁免内网目标 IP 嗅探**：内网网段加入 `sniffer.skip-dst-address`。
 
 ### 维护直连域名清单
 
@@ -18,7 +20,11 @@ DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
 ```
 
 提交后 GitHub Actions 会自动重建 `dist/` 与 `Mihomo内核系/` 下的全部产物；本地可用
-`node scripts/build.js` 手动重建（构建时会自动校验清单是否被正确置顶）。
+`node scripts/build.js` 手动重建（构建时会沙箱模拟执行并校验：白名单置顶、分组/规则引用完整性、无组自引用、规则源 URL 等）。
+
+### 调整区域/分组/规则源
+
+在 [`scripts/build.js`](./scripts/build.js) 顶部的数据区修改：`REGION_GROUPS`（区域正则）、`APP_GROUPS`（应用组）、`RULESETS`（yfamilys 规则文件 → 代理组映射）。
 
 ---
 
