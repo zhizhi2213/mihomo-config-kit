@@ -48,32 +48,21 @@
 
 > ⚠️ 健康检查统一走 `https://www.gstatic.com/generate_204`。**不要改回 `http://`**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
 
-## 导入
+## 一键导入
 
-> 🔒 **本仓库是私有仓库**。私有仓库不能用 raw / jsDelivr 匿名拉取，所以不要填 `raw.githubusercontent.com` 或
-> `cdn.jsdelivr.net` 地址（会 404）。用下面的本地脚本方式。
-
-### 方式一：本地脚本（推荐）
-
-```bash
-# 构建 + 同步到 FlClash 脚本目录
-cd ~/workspace/mihomo-config-kit && node scripts/build.js
-cp dist/mihomo-config.js \
-   "$HOME/Library/Application Support/com.follow.clash/scripts/376298876295974912.js"
-```
-
-然后在 FlClash 里：覆写 / 脚本 → 选中该本地脚本并启用 → 重新应用配置。
-
-### 方式二：带 token 的 raw 地址（多设备时用）
-
-把 PAT（classic，`repo` scope）拼进地址，FlClash 里可直接远程拉取：
+导入地址（客户端里选择「覆写 / 脚本」）：
 
 ```text
-https://<你的PAT>@raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config.js
+https://raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config.js
 ```
 
-⚠️ token 会明文存在客户端配置里，且等于给了整个账号的读权限。仅在自己设备上用，别分享这条地址。
-更安全的替代是把 `dist/mihomo-config.js` 手动拷到目标设备。
+CDN 加速（国内直连可用）：
+
+```text
+https://fastly.jsdelivr.net/gh/zhizhi2213/mihomo-config-kit@main/dist/mihomo-config.js
+```
+
+> ⚠️ 本仓库是公开仓库，**只放规则与构建脚本**。不要把订阅链接、节点密码、机场域名提交进来。
 
 FlClash 使用注意：
 
