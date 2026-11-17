@@ -1,19 +1,78 @@
-# Smart-Config-Kit Custom (Mihomo / FlClash / Clash Party — yfamilys 分流 + anti-AD 去广告版)
+# mihomo-config-kit
 
-基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本。**只保留上游的节点适配与 DNS 架构**，其融合规则集和业务分组会被构建时注入的补丁**整体替换**为 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 式的分组与分流方案 + [anti-AD](https://anti-ad.net/) 去广告：
+一套**自持**的 Mihomo 覆写脚本：给 FlClash / Clash Party / Clash Meta 系客户端的订阅配置做二次加工，重建 DNS、代理组和分流规则。不依赖任何第三方配置项目，全部逻辑都在本仓库里。
 
-- **分组顺序**：`🚀 策略选择 → ♻️ 自动选择 → 👐 手动选择 → 🛑 广告拦截 → 各应用分流组 → 🐟 漏网之鱼 → 区域节点组（港/台/日/新/美…）`，区域组统一排在面板最后。
-- **区域节点组**：`♻️ 自动选择`、`👐 手动选择`、`🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇺🇸 美 / 🇰🇷 韩 / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印` 区域 `url-test` 组 —— 按订阅节点名正则动态匹配，**无匹配节点的区域自动省略**，对任何机场通用；订阅里的流量/到期信息伪节点（`Traffic: xx GB` 等）会被自动剔除，不参与测速。
-- **健康检查**：统一使用 `https://www.gstatic.com/generate_204`（HTTPS）。**不要改回 `http://` 探测**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
-- **应用分流组**：`🚀 策略选择`、`🤖️ 人工智能`、`📲 Telegram`、`📹 YouTube`、`🎥 Netflix`、`🎬 Disney+`、`🎻 Spotify`、`📄 Twitter`、`👤 Facebook`、`📖 Reddit`、`🐦 Discord`、`🪙 Paypal`、`🎮 游戏平台`、`🍿 国外媒体`、`Ⓜ️ 微软服务`、`🍎 苹果服务`、`📽 哔哩哔哩`、`🍔 国内媒体`、`🍟 新浪微博`、`🌐 全球直连`、`🐟 漏网之鱼`（全部 `select`，可手动覆盖）。
-- **分流规则源**：anti-AD 去广告（`anti-ad-clash.yaml`）+ yfamilys 全套 `.rule`（mihomo 兼容 yaml payload，共 33 组，`RULE-SET` 顺序与 yfamilys 基础配置一致）。
-- **规则优先级**：`内网网段直连 → config/direct-domains.txt 白名单 → 去广告 → 分流 → GEOIP,CN → 漏网之鱼`。
-- **开启系统 Hosts**：`dns.use-system-hosts = true`，支持 SwitchHosts / `/etc/hosts` 实时切换开发环境。
-- **豁免内网目标 IP 嗅探**：内网网段加入 `sniffer.skip-dst-address`。
+- 分流方案参考 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 的分组与规则组织方式
+- 去广告使用 [anti-AD](https://anti-ad.net/) 规则集
+- 节点永远来自你自己的订阅，本仓库不含任何节点信息
 
-### 维护直连域名清单
+## 它做了什么
 
-改 [`config/direct-domains.txt`](./config/direct-domains.txt) 即可，无需动代码，支持三种写法：
+导入订阅后，脚本会在客户端应用配置前重写以下部分：
+
+| 模块 | 内容 |
+| --- | --- |
+| DNS | fake-ip（`198.18.0.1/16`）、DoH 主解析（阿里 / 腾讯）、境外 fallback（Cloudflare / Google）、`use-system-hosts: true`（支持 SwitchHosts / `/etc/hosts`） |
+| Sniffer | 识别 IP 直连中的域名，内网网段加入 `skip-dst-address`，避免本地 hosts 解析出的内网 IP 被还原 |
+| 代理组 | 策略选择 / 自动选择 / 手动选择 / 广告拦截 / 20 个应用分流组 / 区域节点组 |
+| 规则源 | anti-AD 去广告 + yfamilys 33 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload） |
+| 规则 | 见下方优先级 |
+
+### 分组顺序
+
+```
+1  🚀 策略选择          select
+2  ♻️ 自动选择          url-test（全部真实节点）
+3  👐 手动选择          select
+4  🛑 广告拦截          REJECT / DIRECT / 策略选择
+5  🤖️ 人工智能  📲 Telegram  📹 YouTube  🎥 Netflix  🎬 Disney+
+   🎻 Spotify  📄 Twitter  👤 Facebook  📖 Reddit  🐦 Discord
+   🪙 Paypal  🎮 游戏平台  🍿 国外媒体  Ⓜ️ 微软服务  🍎 苹果服务
+   📽 哔哩哔哩  🍔 国内媒体  🍟 新浪微博  🌐 全球直连
+6  🐟 漏网之鱼
+7  区域节点组：🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇰🇷 韩 / 🇺🇸 美
+             / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印
+```
+
+区域组按**节点名正则**动态匹配，订阅里没有对应节点时该组自动不创建；订阅附带的 `Traffic: xx GB` 这类流量信息行会被识别为伪节点并剔除，不参与测速。
+
+### 规则优先级
+
+```
+1  内网网段直连         IP-CIDR 127/8、10/8、172.16/12、192.168/16 → DIRECT
+2  直连白名单           config/direct-domains.txt（置顶，防止去广告规则误杀）
+3  去广告               RULE-SET,anti-ad → 🛑 广告拦截
+4  应用分流             33 组 yfamilys RULE-SET
+5  兜底                GEOIP,CN → 🌐 全球直连；MATCH → 🐟 漏网之鱼
+```
+
+> ⚠️ 健康检查统一走 `https://www.gstatic.com/generate_204`。**不要改回 `http://`**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
+
+## 一键导入
+
+导入地址（客户端里选择「覆写 / 脚本」）：
+
+```text
+https://raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config.js
+```
+
+CDN 加速（国内直连可用）：
+
+```text
+https://fastly.jsdelivr.net/gh/zhizhi2213/mihomo-config-kit@main/dist/mihomo-config.js
+```
+
+FlClash 使用注意：
+
+1. 添加订阅 → 覆写 → 填入上面的地址并启用
+2. **关闭 App 自带的「DNS 覆写」**，否则会用 App 的设置覆盖脚本里的 DNS
+3. 重新应用一次配置才会生效；分组改名后手动选择状态会重置
+
+## 维护
+
+### 直连白名单
+
+改 [`config/direct-domains.txt`](./config/direct-domains.txt)，无需动代码，支持三种写法：
 
 ```text
 doubao.com                                   # 简写，自动补成 DOMAIN-SUFFIX,doubao.com,DIRECT
@@ -21,79 +80,41 @@ DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
 # 井号开头为注释
 ```
 
-提交后 GitHub Actions 会自动重建 `dist/` 与 `Mihomo内核系/` 下的全部产物；本地可用
-`node scripts/build.js` 手动重建（构建时会沙箱模拟执行并校验：白名单置顶、分组/规则引用完整性、无组自引用、规则源 URL 等）。
+### 区域正则 / 应用分组 / 规则源
 
-### 调整区域/分组/规则源
+改 [`scripts/build.js`](./scripts/build.js) 顶部数据区：
 
-在 [`scripts/build.js`](./scripts/build.js) 顶部的数据区修改：`REGION_GROUPS`（区域正则）、`APP_GROUPS`（应用组）、`RULESETS`（yfamilys 规则文件 → 代理组映射）。
+| 常量 | 作用 |
+| --- | --- |
+| `REGION_GROUPS` | 区域组名称 + 匹配正则（`include` / `exclude`），数组顺序即面板顺序 |
+| `APP_GROUPS` | 应用分流组，`style` 决定可选项：`proxy` / `direct` / `bilibili` / `final` / `fixed` |
+| `RULESETS` | 分流规则文件 → 代理组映射，数组顺序即 `RULE-SET` 顺序 |
+| `PROBE_URL` | 健康检查地址（必须 HTTPS） |
+| `FAKE_IP_FILTER` | fake-ip 例外域名 |
 
----
-
-## 一键导入脚本链接
-
-### 1. FlClash（标准 Mihomo 内核）
-
-- **精简路径 Raw 链接（推荐）**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/FlClash.js
-  ```
-- **jsDelivr CDN 加速链接（免代理直连导入）**：
-  ```text
-  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/FlClash.js
-  ```
-- **与上游一致的原路径链接**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/FlClash/FlClash%28mihomo%29.js
-  ```
-
----
-
-### 2. Clash Party（标准 Mihomo 内核）
-
-- **精简路径 Raw 链接（推荐）**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/ClashParty.js
-  ```
-- **jsDelivr CDN 加速链接**：
-  ```text
-  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/ClashParty.js
-  ```
-- **与上游一致的原路径链接**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/Clash%20Party/ClashParty%28mihomo%29.js
-  ```
-
----
-
-### 3. Clash Party（Mihomo Smart 内核）
-
-- **精简路径 Raw 链接（推荐）**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/dist/ClashParty-Smart.js
-  ```
-- **jsDelivr CDN 加速链接**：
-  ```text
-  https://fastly.jsdelivr.net/gh/zhizhi2213/smart-config-kit-custom@main/dist/ClashParty-Smart.js
-  ```
-- **与上游一致的原路径链接**：
-  ```text
-  https://raw.githubusercontent.com/zhizhi2213/smart-config-kit-custom/main/Mihomo%E5%86%85%E6%A0%B8%E7%B3%BB/Clash%20Party/ClashParty%28mihomo-smart%29.js
-  ```
-
----
-
-## 文档与教程
-
-- 📖 **[FlClash / Mihomo 覆写脚本从入门到精通指南 (`docs/SCRIPT_GUIDE.md`)](./docs/SCRIPT_GUIDE.md)**：图文拆解 1700+ 行覆写脚本的 8 步执行流水线、核心数据结构与本地 Hosts 补丁写法。
-
----
-
-## 本地构建
-
-如需在本地重新拉取上游最新脚本并构建：
+### 构建
 
 ```bash
 node scripts/build.js
 ```
-提交推送到 GitHub 后，GitHub Actions 也会自动重新构建并校验所有脚本。
+
+生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置、分组顺序、区域匹配、伪节点剔除、规则目标是否存在、组是否自引用、`proxy-providers` 形态是否兼容。
+
+想再做一层内核校验，可以拿真实订阅跑一遍再交给 mihomo：
+
+```bash
+mihomo -t -d <包含 GEOIP.metadb 的目录> -f config.yaml
+```
+
+## 目录结构
+
+```
+config/direct-domains.txt   直连白名单（置顶规则）
+scripts/build.js            构建脚本：数据 + 运行时模板 + 自检
+dist/mihomo-config.js       构建产物（客户端导入的就是它）
+```
+
+## 说明
+
+- 产物只包含规则与分组逻辑，不含节点、订阅地址、密码等敏感信息，可以公开分享
+- 客户端若自行生成含订阅信息的 `config.yaml`，那属于本地文件，不要提交到仓库

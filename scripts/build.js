@@ -1,43 +1,54 @@
 #!/usr/bin/env node
 /**
- * 自动拉取 IvanSolis1989/Smart-Config-Kit 上游 Mihomo 覆写脚本并注入自定义补丁。
+ * mihomo-config-kit 构建脚本
  *
- * 补丁体系（自上游"融合规则集"迁移到 yfamilys 分流方案，参考
- * https://yfamilys.com/config/shadowrocket_basic.conf 的分组与分流设计）：
- * 1. 保留上游的 DNS 架构、节点适配（只取其内核兼容性处理，不再使用其融合规则集）
- * 2. 开启 config.dns["use-system-hosts"] = true，支持本地 /etc/hosts (如 SwitchHosts) 实时切换环境
- * 3. 将内网网段加入 sniffer["skip-dst-address"]，防止本地 hosts 解析出的内网 IP 被 Sniffer 还原成域名
- * 4. 重建代理组：♻️ 自动选择 / 👐 手动选择 / 区域 url-test 组（按节点名正则自动匹配，
- *    无匹配节点的区域自动省略）/ 🛑 广告拦截 / 各应用 select 组
- * 5. 重建 rule-providers：anti-AD 去广告 + yfamilys 全套分流规则（.rule 为 mihomo 兼容 yaml payload）
- * 6. 重建 rules：内网直连 → config/direct-domains.txt 白名单置顶 → 去广告 → 分流 → GEOIP,CN 兜底 → 漏网之鱼
+ * 生成 dist/mihomo-config.js —— 一个**自包含**的 Mihomo 覆写脚本：
+ * FlClash / Clash Party / Clash Meta 系客户端导入后，会在订阅配置基础上重建
+ * DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules，不依赖任何上游项目。
+ *
+ * 只需要维护两个地方：
+ * - config/direct-domains.txt   直连白名单（置顶，防止去广告规则误杀）
+ * - 本文件顶部的数据区          区域正则 / 应用分组 / 分流规则源
  */
 
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const { execFileSync } = require("child_process");
 
-const UPSTREAM_BASE = "https://raw.githubusercontent.com/IvanSolis1989/Smart-Config-Kit/main";
+const ROOT = path.resolve(__dirname, "..");
+const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
+const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
+const VERSION = "1.0.0";
 
-const PRIVATE_CIDRS = [
-  "127.0.0.0/8",
-  "10.0.0.0/8",
-  "172.16.0.0/12",
-  "192.168.0.0/16",
-];
+// ---------- 基础参数 ----------
+const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
 
-// 直连域名清单：外置为纯文本，按行维护，无需改代码
-const DIRECT_DOMAINS_FILE = path.resolve(__dirname, "..", "config", "direct-domains.txt");
-
-// 健康检查探测地址：必须走 HTTPS，部分机场中继对 80 端口直接断连，
-// 会刷出 "use of closed network connection" 的假失败（上游同款地址）
+// 健康检查探测地址：必须 HTTPS。部分机场中继对 80 端口直接断连，
+// 会刷出 "use of closed network connection" 的假失败。
 const PROBE_URL = "https://www.gstatic.com/generate_204";
 
 // 订阅里常见的"伪节点"（流量/到期信息行），参与测速必然失败，建组时剔除
-const INFO_NODE_RE = "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|套餐到期|已用)";
+const INFO_NODE_RE = "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|已用)";
 
-// ---------- 代理组名（唯一数据源，避免散落各处拼写不一致） ----------
+// fake-ip 白名单：这些域名始终真实解析（否则会破坏局域网发现、游戏联机等）
+const FAKE_IP_FILTER = [
+  "*.lan",
+  "*.local",
+  "+.in-addr.arpa",
+  "localhost.ptlogin2.qq.com",
+  "+.srv.nintendo.net",
+  "+.stun.playstation.net",
+  "+.msftconnecttest.com",
+  "+.msftncsi.com",
+  "msftconnecttest.com",
+  "xbox.*.microsoft.com",
+  "*.battlenet.com.cn",
+  "*.battlenet.com",
+  "*.blzstatic.cn",
+  "+.market.xiaomi.com",
+];
+
+// ---------- 代理组名 ----------
 const G = {
   strategy: "🚀 策略选择",
   auto: "♻️ 自动选择",
@@ -111,9 +122,9 @@ const APP_GROUPS = [
   { name: G.final, style: "final" },
 ];
 
-// ---------- yfamilys 分流规则源（key = 规则文件名，也是 rule-provider 名） ----------
-// 参考 yfamilys.com/config/shadowrocket_basic.conf 的 [Rule] 顺序
-const YFAMILYS_RULE_BASE = "https://yfamilys.com/rule";
+// ---------- 分流规则源（key = 规则文件名，也是 rule-provider 名） ----------
+// 顺序参考 yfamilys 基础配置的 [Rule] 段
+const RULE_BASE = "https://yfamilys.com/rule";
 const ANTI_AD_URL =
   "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml";
 
@@ -153,46 +164,6 @@ const RULESETS = [
   ["ASN-CN", G.direct],
 ];
 
-const TARGETS = [
-  {
-    name: "FlClash (标准 Mihomo 内核)",
-    upstreamPath: "Mihomo内核系/FlClash/FlClash(mihomo).js",
-    outputPaths: [
-      "Mihomo内核系/FlClash/FlClash(mihomo).js",
-      "dist/FlClash.js",
-      "dist/FlClash-Generic.js",
-    ],
-  },
-  {
-    name: "Clash Party (标准 Mihomo 内核)",
-    upstreamPath: "Mihomo内核系/Clash Party/ClashParty(mihomo).js",
-    outputPaths: [
-      "Mihomo内核系/Clash Party/ClashParty(mihomo).js",
-      "dist/ClashParty.js",
-      "dist/ClashParty-Generic.js",
-    ],
-  },
-  {
-    name: "Clash Party (Mihomo Smart 内核)",
-    upstreamPath: "Mihomo内核系/Clash Party/ClashParty(mihomo-smart).js",
-    outputPaths: [
-      "Mihomo内核系/Clash Party/ClashParty(mihomo-smart).js",
-      "dist/ClashParty-Smart.js",
-      "dist/ClashParty-Smart-Generic.js",
-    ],
-  },
-];
-
-function fetchUrl(url) {
-  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || "";
-  const args = ["-sSL", "--retry", "3", "--connect-timeout", "15"];
-  if (proxy) {
-    args.push("-x", proxy);
-  }
-  args.push(url);
-  return execFileSync("curl", args, { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
-}
-
 function loadDirectRules() {
   if (!fs.existsSync(DIRECT_DOMAINS_FILE)) {
     throw new Error(`未找到直连域名清单: ${DIRECT_DOMAINS_FILE}`);
@@ -224,60 +195,118 @@ function loadDirectRules() {
   return rules;
 }
 
-/**
- * 生成注入到上游脚本 main() 内（sortProxyGroups(config) 之后）的运行时补丁。
- * 运行时基于订阅实际节点名动态匹配区域组，因此产物脚本对任何机场通用。
- */
-function buildPatchSnippet() {
-  const payload = {
+function buildData() {
+  return {
+    version: VERSION,
+    buildTime: new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC",
     privateCidrs: PRIVATE_CIDRS,
     directRules: loadDirectRules(),
+    fakeIpFilter: FAKE_IP_FILTER,
+    probeUrl: PROBE_URL,
+    infoNodeRe: INFO_NODE_RE,
     regions: REGION_GROUPS,
     appGroups: APP_GROUPS,
     rulesets: RULESETS.map(([key, target]) => ({ key, target })),
     G,
-    ruleBase: YFAMILYS_RULE_BASE,
+    ruleBase: RULE_BASE,
     antiAdUrl: ANTI_AD_URL,
-    probeUrl: PROBE_URL,
-    infoNodeRe: INFO_NODE_RE,
   };
+}
 
-  return `
-    // === [Custom Patch] Local Hosts + 内网直连 + yfamilys 分流/去广告（数据由 scripts/build.js 注入） ===
-    // 注意：上游为无分号风格，前导分号防止 ASI 把 IIFE 解析成上一条语句的函数调用
-    ;(function () {
-      var D = ${JSON.stringify(payload, null, 6)};
-      var cfg = config;
+const RUNTIME = `
+function mihomoKitMatch(names, include, exclude) {
+  var re = new RegExp(include, "i");
+  var neg = exclude ? new RegExp(exclude, "i") : null;
+  var out = [];
+  for (var i = 0; i < names.length; i++) {
+    var n = names[i];
+    if (re.test(n) && !(neg && neg.test(n))) out.push(n);
+  }
+  return out;
+}
 
-      // --- 1. 开启本地 Hosts 与内网嗅探豁免 ---
-      if (cfg.dns) {
-        cfg.dns["use-system-hosts"] = true;
-      }
-      if (cfg.sniffer) {
-        if (!Array.isArray(cfg.sniffer["skip-dst-address"])) {
-          cfg.sniffer["skip-dst-address"] = [];
-        }
-        D.privateCidrs.forEach(function (c) {
-          if (cfg.sniffer["skip-dst-address"].indexOf(c) === -1) {
-            cfg.sniffer["skip-dst-address"].push(c);
-          }
-        });
-      }
+function mihomoKitUnique(list) {
+  var seen = {};
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    if (!seen[list[i]]) {
+      seen[list[i]] = true;
+      out.push(list[i]);
+    }
+  }
+  return out;
+}
 
-      // --- 2. 按节点名匹配区域组（先剔除流量/到期信息伪节点） ---
-      var infoRe = new RegExp(D.infoNodeRe, "i");
-      var names = (cfg.proxies || [])
-        .map(function (p) { return p.name; })
-        .filter(function (n) { return !infoRe.test(n); });
-      function match(include, exclude) {
-        var re = new RegExp(include, "i");
-        var neg = exclude ? new RegExp(exclude, "i") : null;
-        return names.filter(function (n) { return re.test(n) && !(neg && neg.test(n)); });
-      }
-      var regionNames = [];
-      var regionGroups = [];
+function main(config) {
+  try {
+    if (!config || typeof config !== "object" || Array.isArray(config)) return config;
+
+    var D = MIHOMO_KIT;
+    var cfg = config;
+    var i;
+
+    // ---------- 1. 基础参数 ----------
+    if (!cfg.mode) cfg.mode = "rule";
+    cfg["unified-delay"] = true;
+    cfg["tcp-concurrent"] = true;
+    if (!cfg["log-level"]) cfg["log-level"] = "warning";
+    if (!cfg.profile || typeof cfg.profile !== "object") cfg.profile = {};
+    cfg.profile["store-selected"] = true;
+    if (cfg.profile["store-fake-ip"] === undefined) cfg.profile["store-fake-ip"] = true;
+
+    // ---------- 2. DNS（fake-ip + 本地 hosts） ----------
+    var dns = cfg.dns && typeof cfg.dns === "object" && !Array.isArray(cfg.dns) ? cfg.dns : {};
+    dns.enable = true;
+    if (!dns.listen) dns.listen = "0.0.0.0:1053";
+    dns.ipv6 = false;
+    dns["enhanced-mode"] = "fake-ip";
+    dns["fake-ip-range"] = "198.18.0.1/16";
+    dns["use-system-hosts"] = true;
+    dns["default-nameserver"] = ["223.5.5.5", "119.29.29.29"];
+    dns.nameserver = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
+    dns["proxy-server-nameserver"] = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
+    dns.fallback = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "https://dns.google/dns-query"];
+    dns["fallback-filter"] = { geoip: true, "geoip-code": "CN", ipcidr: ["240.0.0.0/4"] };
+    var fakeIp = Array.isArray(dns["fake-ip-filter"]) ? dns["fake-ip-filter"].slice() : [];
+    fakeIp = mihomoKitUnique(fakeIp.concat(D.fakeIpFilter));
+    dns["fake-ip-filter"] = fakeIp;
+    cfg.dns = dns;
+
+    // ---------- 3. Sniffer（识别 IP 直连里的域名，内网网段豁免） ----------
+    var sniffer = cfg.sniffer && typeof cfg.sniffer === "object" ? cfg.sniffer : {};
+    sniffer.enable = true;
+    sniffer["force-dns-mapping"] = false;
+    sniffer["parse-pure-ip"] = true;
+    sniffer["override-destination"] = false;
+    if (!sniffer.sniff) {
+      sniffer.sniff = {
+        HTTP: { ports: [80, "8080-8880"] },
+        TLS: { ports: [443, 8443] },
+        QUIC: { ports: [443, 8443] }
+      };
+    }
+    var skipDst = Array.isArray(sniffer["skip-dst-address"]) ? sniffer["skip-dst-address"].slice() : [];
+    skipDst = mihomoKitUnique(skipDst.concat(D.privateCidrs));
+    sniffer["skip-dst-address"] = skipDst;
+    cfg.sniffer = sniffer;
+
+    // ---------- 4. 节点来源：内联 proxies 优先，否则退回 proxy-providers ----------
+    var infoRe = new RegExp(D.infoNodeRe, "i");
+    var names = [];
+    var proxies = Array.isArray(cfg.proxies) ? cfg.proxies : [];
+    for (i = 0; i < proxies.length; i++) {
+      var p = proxies[i];
+      if (p && p.name && !infoRe.test(p.name)) names.push(p.name);
+    }
+    var providers = Object.keys(cfg["proxy-providers"] || {});
+    var useProvider = names.length === 0 && providers.length > 0;
+
+    // ---------- 5. 区域节点组 ----------
+    var regionGroups = [];
+    var regionNames = [];
+    if (!useProvider) {
       D.regions.forEach(function (r) {
-        var matched = match(r.include, r.exclude);
+        var matched = mihomoKitMatch(names, r.include, r.exclude);
         if (!matched.length) return;
         regionNames.push(r.name);
         regionGroups.push({
@@ -291,210 +320,204 @@ function buildPatchSnippet() {
           proxies: matched
         });
       });
+    }
 
-      var nodeNames = names.length ? names.slice() : ["DIRECT"];
-      var strategyOptions = [D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
-      var proxyOptions = [D.G.strategy, D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
-      var directOptions = ["DIRECT", D.G.strategy];
-      var bilibiliOptions = ["DIRECT", D.G.strategy].concat(
-        regionGroups
-          .filter(function (g) { return g.name === D.G.hk || g.name === D.G.tw; })
-          .map(function (g) { return g.name; })
-      );
+    // ---------- 6. 代理组（面板顺序：策略 → 自动/手动 → 广告拦截 → 应用 → 区域） ----------
+    var nodeNames = names.length ? names.slice() : ["DIRECT"];
+    var strategyOptions = [D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
+    var proxyOptions = [D.G.strategy, D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
+    var directOptions = ["DIRECT", D.G.strategy];
+    var bilibiliOptions = ["DIRECT", D.G.strategy].concat(
+      regionGroups
+        .filter(function (g) { return g.name === D.G.hk || g.name === D.G.tw; })
+        .map(function (g) { return g.name; })
+    );
 
-      // --- 3. 重建代理组（整体替换上游融合分组） ---
-      // 面板顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 区域节点组（区域组统一放最后）
-      var groups = [
-        { name: D.G.strategy, type: "select", proxies: strategyOptions },
-        { name: D.G.auto, type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true, proxies: nodeNames },
-        { name: D.G.manual, type: "select", proxies: nodeNames }
-      ];
-      D.appGroups.forEach(function (a) {
-        if (a.style === "proxy") groups.push({ name: a.name, type: "select", proxies: proxyOptions });
-        else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
-        else if (a.style === "bilibili") groups.push({ name: a.name, type: "select", proxies: bilibiliOptions });
-        else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
-        else groups.push({ name: a.name, type: "select", proxies: a.proxies });
-      });
-      cfg["proxy-groups"] = groups.concat(regionGroups);
+    function urlTestGroup(extra) {
+      var base = { type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true };
+      for (var k in extra) base[k] = extra[k];
+      return base;
+    }
 
-      // --- 4. 重建规则源：anti-AD 去广告 + yfamilys 全套分流 ---
-      var rp = {
-        "anti-ad": {
-          type: "http",
-          behavior: "classical",
-          format: "yaml",
-          url: D.antiAdUrl,
-          path: "./providers/rules/anti-ad.yaml",
-          interval: 86400
-        }
+    var groups = [
+      { name: D.G.strategy, type: "select", proxies: strategyOptions },
+      urlTestGroup(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
+      useProvider ? { name: D.G.manual, type: "select", use: providers } : { name: D.G.manual, type: "select", proxies: nodeNames }
+    ];
+
+    D.appGroups.forEach(function (a) {
+      if (a.style === "proxy") groups.push({ name: a.name, type: "select", proxies: proxyOptions });
+      else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
+      else if (a.style === "bilibili") groups.push({ name: a.name, type: "select", proxies: bilibiliOptions });
+      else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
+      else groups.push({ name: a.name, type: "select", proxies: a.proxies });
+    });
+
+    cfg["proxy-groups"] = groups.concat(regionGroups);
+
+    // ---------- 7. 规则源：anti-AD 去广告 + yfamilys 分流 ----------
+    var rp = {
+      "anti-ad": {
+        type: "http",
+        behavior: "classical",
+        format: "yaml",
+        url: D.antiAdUrl,
+        path: "./providers/rules/anti-ad.yaml",
+        interval: 86400
+      }
+    };
+    D.rulesets.forEach(function (rs) {
+      rp[rs.key] = {
+        type: "http",
+        behavior: "classical",
+        format: "yaml",
+        url: D.ruleBase + "/" + rs.key + ".rule",
+        path: "./providers/rules/" + rs.key + ".yaml",
+        interval: 86400
       };
-      D.rulesets.forEach(function (rs) {
-        rp[rs.key] = {
-          type: "http",
-          behavior: "classical",
-          format: "yaml",
-          url: D.ruleBase + "/" + rs.key + ".rule",
-          path: "./providers/rules/" + rs.key + ".yaml",
-          interval: 86400
-        };
-      });
-      cfg["rule-providers"] = rp;
+    });
+    cfg["rule-providers"] = rp;
 
-      // --- 5. 重建规则：内网直连 → 白名单置顶 → 去广告 → 分流 → 兜底 ---
-      var rules = [];
-      D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
-      D.directRules.forEach(function (r) { rules.push(r); });
-      rules.push("RULE-SET,anti-ad," + D.G.adblock);
-      D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
-      rules.push("GEOIP,CN," + D.G.direct);
-      rules.push("MATCH," + D.G.final);
-      cfg.rules = rules;
-    })();
-    // === [Custom Patch End] ===`;
-}
+    // ---------- 8. 规则：内网直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
+    var rules = [];
+    D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+    D.directRules.forEach(function (r) { rules.push(r); });
+    rules.push("RULE-SET,anti-ad," + D.G.adblock);
+    D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
+    rules.push("GEOIP,CN," + D.G.direct);
+    rules.push("MATCH," + D.G.final);
+    cfg.rules = rules;
 
-function applyPatches(rawContent, targetName) {
-  const sortAnchor = "    sortProxyGroups(config)";
-  if (!rawContent.includes(sortAnchor)) {
-    throw new Error(`[${targetName}] 未找到 sortProxyGroups(config) 锚点`);
+    return cfg;
+  } catch (err) {
+    console.log("[mihomo-config-kit] 配置生成失败: " + err);
+    return config;
   }
-  return rawContent.replace(sortAnchor, sortAnchor + "\n" + buildPatchSnippet());
+}
+`;
+
+function generate() {
+  const data = buildData();
+  const header = `// ============================================================
+// mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// 生成时间：${data.buildTime}
+// 本文件由 scripts/build.js 自动生成，请勿手动编辑
+// 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
+// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组
+// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流 → GEOIP,CN → 漏网之鱼
+// ============================================================
+
+var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
+`;
+  return header + RUNTIME;
 }
 
 const BUILTIN_TARGETS = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]);
 
-function verifyPatchedScript(code, targetName) {
+function verify(code) {
   const sandbox = { console: { log() {}, error() {}, warn() {} } };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
 
-  // 覆盖多个区域的假节点，验证区域组动态匹配逻辑
-  const mockConfig = {
+  const data = buildData();
+  const mk = (name) => ({ name, server: "x.example.com", port: 443, type: "ss", cipher: "aes-128-gcm", password: "x" });
+
+  // --- 场景 A：内联节点（FlClash 常见形态） ---
+  const inline = sandbox.main({
     proxies: [
-      { name: "🇭🇰 香港 IEPL 01", server: "hk.example.com", port: 10013, type: "ss", cipher: "aes-128-gcm", password: "123" },
-      { name: "美国 Los Angeles 01", server: "us.example.com", port: 10014, type: "ss", cipher: "aes-128-gcm", password: "123" },
-      { name: "日本 Tokyo 01", server: "jp.example.com", port: 10015, type: "ss", cipher: "aes-128-gcm", password: "123" },
-      { name: "新加坡 SG 01", server: "sg.example.com", port: 10016, type: "ss", cipher: "aes-128-gcm", password: "123" },
-      { name: "台湾 TW 01", server: "tw.example.com", port: 10017, type: "ss", cipher: "aes-128-gcm", password: "123" },
-      { name: "Traffic: 32.71 GB | 150 GB", server: "info.example.com", port: 1, type: "ss", cipher: "aes-128-gcm", password: "123" },
+      mk("🇭🇰 香港 IEPL 01"),
+      mk("香港高级 IEPL 专线 2"),
+      mk("🇨🇳 台湾 TW 01"),
+      mk("日本 Tokyo 01"),
+      mk("美国 Los Angeles 01"),
+      mk("Traffic: 32.71 GB | 150 GB"),
     ],
-    "proxy-groups": [],
-    rules: [],
-  };
+    "proxy-groups": [{ name: "旧分组", type: "select", proxies: ["DIRECT"] }],
+    rules: ["MATCH,DIRECT"],
+  });
 
-  const out = sandbox.main(mockConfig);
+  if (!inline.dns || inline.dns["use-system-hosts"] !== true) throw new Error("DNS：use-system-hosts 未开启");
+  if (inline.dns["enhanced-mode"] !== "fake-ip") throw new Error("DNS：未使用 fake-ip 模式");
+  if (!inline.sniffer || inline.sniffer.enable !== true) throw new Error("Sniffer：未开启");
+  if (inline.sniffer["skip-dst-address"].indexOf("192.168.0.0/16") === -1) throw new Error("Sniffer：内网网段未豁免");
 
-  // --- DNS / 嗅探补丁 ---
-  if (!out.dns || out.dns["use-system-hosts"] !== true) {
-    throw new Error(`[${targetName}] 校验失败：use-system-hosts 未开启`);
-  }
+  const rules = inline.rules || [];
+  if (rules[0] !== "IP-CIDR,127.0.0.0/8,DIRECT") throw new Error(`规则：首条应为内网直连，实际 ${rules[0]}`);
+  const missing = data.directRules.filter((r) => !rules.includes(r));
+  if (missing.length) throw new Error(`规则：直连白名单未注入 -> ${missing.slice(0, 3).join(" | ")}`);
+  if (rules.indexOf(data.directRules[0]) !== PRIVATE_CIDRS.length) throw new Error("规则：白名单未紧跟内网规则置顶");
+  if (!rules.includes("RULE-SET,anti-ad,🛑 广告拦截")) throw new Error("规则：anti-AD 未注入");
+  if (!rules.includes("MATCH,🐟 漏网之鱼") || !rules.includes("GEOIP,CN,🌐 全球直连")) throw new Error("规则：兜底规则缺失");
 
-  // --- 规则结构 ---
-  const rules = out.rules || [];
-  if (rules[0] !== "IP-CIDR,127.0.0.0/8,DIRECT") {
-    throw new Error(`[${targetName}] 校验失败：首条规则应为内网直连，实际为 ${rules[0]}`);
-  }
-  const expectedDomainRules = loadDirectRules();
-  const missingRules = expectedDomainRules.filter((r) => !rules.includes(r));
-  if (missingRules.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：直连域名规则未注入 -> ${missingRules.slice(0, 3).join(" | ")}`);
-  }
-  const domainRulesPos = rules.indexOf(expectedDomainRules[0]);
-  if (domainRulesPos !== PRIVATE_CIDRS.length) {
-    throw new Error(`[${targetName}] 校验失败：直连域名规则未紧跟内网规则置顶，位置 ${domainRulesPos}`);
-  }
-  if (!rules.includes("RULE-SET,anti-ad,🛑 广告拦截")) {
-    throw new Error(`[${targetName}] 校验失败：anti-AD 去广告规则未注入`);
-  }
-  if (!rules.includes("MATCH,🐟 漏网之鱼") || !rules.includes("GEOIP,CN,🌐 全球直连")) {
-    throw new Error(`[${targetName}] 校验失败：兜底规则未注入`);
-  }
+  const groups = inline["proxy-groups"] || [];
+  const groupNames = new Set(groups.map((g) => g.name));
+  if (groupNames.has("旧分组")) throw new Error("分组：订阅旧分组未被替换");
 
-  // --- 分流规则的目标组必须真实存在 ---
-  const groupNames = new Set((out["proxy-groups"] || []).map((g) => g.name));  const badTargets = [];
+  // 规则目标必须存在
+  const badTargets = [];
   for (const r of rules) {
     const parts = r.split(",");
     const target = r.startsWith("MATCH") ? parts[1] : parts[parts.length - 1];
-    if (!BUILTIN_TARGETS.has(target) && !groupNames.has(target)) {
-      badTargets.push(`${r} -> ${target}`);
-    }
+    if (!BUILTIN_TARGETS.has(target) && !groupNames.has(target)) badTargets.push(`${r} -> ${target}`);
   }
-  if (badTargets.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：规则指向不存在的代理组 -> ${badTargets.slice(0, 3).join(" | ")}`);
-  }
+  if (badTargets.length) throw new Error(`规则：指向不存在的组 -> ${badTargets.slice(0, 3).join(" | ")}`);
 
-  // --- 代理组不得自引用（如 🚀 策略选择 包含自己） ---
-  const selfRef = (out["proxy-groups"] || []).filter((g) => (g.proxies || []).includes(g.name));
-  if (selfRef.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：代理组自引用 -> ${selfRef.map((g) => g.name).join(", ")}`);
-  }
+  // 组不得自引用
+  const selfRef = groups.filter((g) => (g.proxies || []).includes(g.name));
+  if (selfRef.length) throw new Error(`分组：自引用 -> ${selfRef.map((g) => g.name).join(", ")}`);
 
-  // --- 区域组动态匹配 ---
-  const hkGroup = (out["proxy-groups"] || []).find((g) => g.name === "🇭🇰 香港节点");
-  if (!hkGroup || !hkGroup.proxies.includes("🇭🇰 香港 IEPL 01")) {
-    throw new Error(`[${targetName}] 校验失败：香港区域组未正确匹配节点`);
-  }
+  // 区域组
+  const order = groups.map((g) => g.name);
+  const hk = groups.find((g) => g.name === "🇭🇰 香港节点");
+  if (!hk || hk.proxies.length !== 2) throw new Error("区域：香港组未正确匹配 2 个节点");
+  if (order.indexOf("🇭🇰 香港节点") < order.indexOf("🐟 漏网之鱼")) throw new Error("分组：区域组未排在应用组之后");
+  if (order.includes("🇰🇷 韩国节点")) throw new Error("区域：无匹配节点时不应创建韩国组");
 
-  // --- 区域节点组必须排在应用分流组之后（面板顺序） ---
-  const groupOrder = (out["proxy-groups"] || []).map((g) => g.name);
-  if (groupOrder.indexOf("🇭🇰 香港节点") < groupOrder.indexOf("🐟 漏网之鱼")) {
-    throw new Error(`[${targetName}] 校验失败：区域节点组未排在应用组之后 -> ${groupOrder.join(" | ")}`);
-  }
+  // 伪节点不得混入
+  const infoLeak = groups.filter((g) => (g.proxies || []).some((n) => /^Traffic/i.test(n)));
+  if (infoLeak.length) throw new Error(`分组：伪节点混入 -> ${infoLeak.map((g) => g.name).join(", ")}`);
 
-  // --- 健康检查必须走 HTTPS（80 端口探测会被部分中继断连） + 剔除信息伪节点 ---
-  const urlTestGroups = (out["proxy-groups"] || []).filter((g) => g.type === "url-test");
-  const badProbe = urlTestGroups.filter((g) => !/^https:\/\//.test(String(g.url)));
-  if (badProbe.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：测速组未使用 HTTPS 探测地址 -> ${badProbe.map((g) => g.name).join(", ")}`);
-  }
-  const infoLeak = (out["proxy-groups"] || []).filter((g) => (g.proxies || []).some((n) => /^Traffic/i.test(n)));
-  if (infoLeak.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：信息伪节点混入代理组 -> ${infoLeak.map((g) => g.name).join(", ")}`);
-  }
+  // 测速组必须 HTTPS
+  const badProbe = groups.filter((g) => g.type === "url-test" && !/^https:\/\//.test(String(g.url)));
+  if (badProbe.length) throw new Error(`测速：未使用 HTTPS -> ${badProbe.map((g) => g.name).join(", ")}`);
 
-  // --- rule-providers ---
-  const rp = out["rule-providers"] || {};
-  if (!rp["anti-ad"] || Object.keys(rp).length < RULESETS.length + 1) {
-    throw new Error(`[${targetName}] 校验失败：rule-providers 数量异常（${Object.keys(rp).length}）`);
-  }
-  for (const [key] of RULESETS) {
-    if (!rp[key] || !String(rp[key].url).endsWith(`/${key}.rule`)) {
-      throw new Error(`[${targetName}] 校验失败：分流规则源缺失或 URL 错误 -> ${key}`);
+  // 规则源
+  const rp = inline["rule-providers"] || {};
+  if (!rp["anti-ad"]) throw new Error("规则源：anti-AD 缺失");
+  for (const rs of data.rulesets) {
+    if (!rp[rs.key] || !String(rp[rs.key].url).endsWith(`/${rs.key}.rule`)) {
+      throw new Error(`规则源：${rs.key} 缺失或 URL 错误`);
     }
   }
 
-  // --- 上游融合规则集应已不再使用 ---
-  const sckiLeftover = Object.keys(rp).filter((k) => k.startsWith("scki-fused"));
-  if (sckiLeftover.length > 0) {
-    throw new Error(`[${targetName}] 校验失败：上游融合规则集未被替换 -> ${sckiLeftover.slice(0, 3).join(", ")}`);
-  }
+  // --- 场景 B：仅 proxy-providers（无内联节点） ---
+  const provider = sandbox.main({
+    proxies: [],
+    rules: [],
+    "proxy-groups": [],
+    "proxy-providers": { Sub: { type: "http", url: "https://example.com/sub", path: "./p/sub.yaml", interval: 86400 } },
+  });
+  const pGroups = provider["proxy-groups"] || [];
+  const pAuto = pGroups.find((g) => g.name === "♻️ 自动选择");
+  const pManual = pGroups.find((g) => g.name === "👐 手动选择");
+  if (!pAuto || !Array.isArray(pAuto.use) || pAuto.use[0] !== "Sub") throw new Error("provider 模式：自动选择未使用 use");
+  if (!pManual || !Array.isArray(pManual.use)) throw new Error("provider 模式：手动选择未使用 use");
+  if (pGroups.some((g) => g.type === "url-test" && !g.use && !g.proxies)) throw new Error("provider 模式：存在空组");
+  if (!provider.rules.includes("MATCH,🐟 漏网之鱼")) throw new Error("provider 模式：规则未生成");
+
+  return { groups: groups.length, rules: rules.length, providers: Object.keys(rp).length };
 }
 
 function main() {
-  const rootDir = path.resolve(__dirname, "..");
+  const code = generate();
+  const stat = verify(code);
 
-  for (const target of TARGETS) {
-    const encodedPath = target.upstreamPath
-      .split("/")
-      .map((seg) => encodeURIComponent(seg))
-      .join("/");
-    const url = `${UPSTREAM_BASE}/${encodedPath}`;
-    console.log(`正在拉取上游脚本: ${target.name}\n  URL: ${url}`);
+  fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
+  fs.writeFileSync(OUTPUT, code, "utf8");
 
-    const raw = fetchUrl(url);
-    const patched = applyPatches(raw, target.name);
-    verifyPatchedScript(patched, target.name);
-
-    for (const relOut of target.outputPaths) {
-      const fullOut = path.join(rootDir, relOut);
-      fs.mkdirSync(path.dirname(fullOut), { recursive: true });
-      fs.writeFileSync(fullOut, patched, "utf8");
-      console.log(`  ✓ 已生成并校验通过: ${relOut}`);
-    }
-  }
-
-  console.log("\n全部脚本构建及自检完成！");
+  console.log(`✓ 已生成 ${path.relative(ROOT, OUTPUT)}（${(code.length / 1024).toFixed(1)} KB）`);
+  console.log(`  分组 ${stat.groups} 个 / 规则 ${stat.rules} 条 / 规则源 ${stat.providers} 个`);
+  console.log("  自检通过：DNS / Sniffer / 分组顺序 / 区域匹配 / 伪节点剔除 / 规则引用 / provider 模式");
 }
 
 main();
