@@ -108,12 +108,23 @@ node scripts/build.js
 mihomo -t -d <包含 GEOIP.metadb 的目录> -f config.yaml
 ```
 
+### 自动构建（GitHub Actions）
+
+[`.github/workflows/build.yml`](./.github/workflows/build.yml) 会在以下时机重建产物并回提交 `dist/`：
+
+- push 到 `main` 且改动涉及 `scripts/**`、`config/**` 或工作流自身
+- 每周一北京时间 04:00 定时重建（规则源有更新时保持产物新鲜）
+- 手动：Actions → Build Override Script → Run workflow
+
+构建是可复现的（产物里不写时间戳），所以**源码没实质变化时不会产生空的 bot 提交**。
+
 ## 目录结构
 
 ```
-config/direct-domains.txt   直连白名单（置顶规则）
-scripts/build.js            构建脚本：数据 + 运行时模板 + 自检
-dist/mihomo-config.js       构建产物（客户端导入的就是它）
+config/direct-domains.txt       直连白名单（置顶规则）
+scripts/build.js                构建脚本：数据 + 运行时模板 + 自检
+dist/mihomo-config.js           构建产物（客户端导入的就是它）
+.github/workflows/build.yml     CI：改动即重建并回提交产物
 ```
 
 ## 说明
