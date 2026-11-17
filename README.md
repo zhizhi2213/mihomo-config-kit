@@ -125,7 +125,10 @@ config/direct-domains.txt       直连白名单（置顶规则）
 scripts/build.js                构建脚本：数据 + 运行时模板 + 自检
 dist/mihomo-config.js           构建产物（客户端导入的就是它）
 .github/workflows/build.yml     CI：改动即重建并回提交产物
+docs/AI-HANDOFF.md              交接指南：后续接手者（人或 AI）的操作流程、硬约束、排障树
 ```
+
+> 想让 AI 继续接手维护这个项目？把 [`docs/AI-HANDOFF.md`](./docs/AI-HANDOFF.md) 交给它即可 —— 里面写了改哪个文件、怎么验证、哪些改法一定会出 bug。
 
 ## 说明
 
