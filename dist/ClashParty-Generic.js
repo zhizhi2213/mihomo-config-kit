@@ -1985,7 +1985,9 @@ function main(config) {
             "tw": "🇨🇳 台湾节点"
       },
       "ruleBase": "https://yfamilys.com/rule",
-      "antiAdUrl": "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml"
+      "antiAdUrl": "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml",
+      "probeUrl": "https://www.gstatic.com/generate_204",
+      "infoNodeRe": "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|套餐到期|已用)"
 };
       var cfg = config;
 
@@ -2004,8 +2006,11 @@ function main(config) {
         });
       }
 
-      // --- 2. 按节点名匹配区域组 ---
-      var names = (cfg.proxies || []).map(function (p) { return p.name; });
+      // --- 2. 按节点名匹配区域组（先剔除流量/到期信息伪节点） ---
+      var infoRe = new RegExp(D.infoNodeRe, "i");
+      var names = (cfg.proxies || [])
+        .map(function (p) { return p.name; })
+        .filter(function (n) { return !infoRe.test(n); });
       function match(include, exclude) {
         var re = new RegExp(include, "i");
         var neg = exclude ? new RegExp(exclude, "i") : null;
@@ -2020,9 +2025,11 @@ function main(config) {
         regionGroups.push({
           name: r.name,
           type: "url-test",
-          url: "http://cp.cloudflare.com/generate_204",
+          url: D.probeUrl,
           interval: 600,
           tolerance: 50,
+          timeout: 5000,
+          lazy: true,
           proxies: matched
         });
       });
@@ -2040,7 +2047,7 @@ function main(config) {
       // --- 3. 重建代理组（整体替换上游融合分组） ---
       var groups = [
         { name: D.G.strategy, type: "select", proxies: strategyOptions },
-        { name: D.G.auto, type: "url-test", url: "http://cp.cloudflare.com/generate_204", interval: 600, tolerance: 50, proxies: nodeNames },
+        { name: D.G.auto, type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true, proxies: nodeNames },
         { name: D.G.manual, type: "select", proxies: nodeNames }
       ].concat(regionGroups);
       D.appGroups.forEach(function (a) {

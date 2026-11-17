@@ -2,7 +2,8 @@
 
 基于上游 [IvanSolis1989/Smart-Config-Kit](https://github.com/IvanSolis1989/Smart-Config-Kit)，通过 GitHub Actions 每日自动同步上游最新脚本。**只保留上游的节点适配与 DNS 架构**，其融合规则集和业务分组会被构建时注入的补丁**整体替换**为 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 式的分组与分流方案 + [anti-AD](https://anti-ad.net/) 去广告：
 
-- **区域节点组**：`♻️ 自动选择`、`👐 手动选择`、`🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇺🇸 美 / 🇰🇷 韩 / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印` 区域 `url-test` 组 —— 按订阅节点名正则动态匹配，**无匹配节点的区域自动省略**，对任何机场通用。
+- **区域节点组**：`♻️ 自动选择`、`👐 手动选择`、`🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇺🇸 美 / 🇰🇷 韩 / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印` 区域 `url-test` 组 —— 按订阅节点名正则动态匹配，**无匹配节点的区域自动省略**，对任何机场通用；订阅里的流量/到期信息伪节点（`Traffic: xx GB` 等）会被自动剔除，不参与测速。
+- **健康检查**：统一使用 `https://www.gstatic.com/generate_204`（HTTPS）。**不要改回 `http://` 探测**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
 - **应用分流组**：`🚀 策略选择`、`🤖️ 人工智能`、`📲 Telegram`、`📹 YouTube`、`🎥 Netflix`、`🎬 Disney+`、`🎻 Spotify`、`📄 Twitter`、`👤 Facebook`、`📖 Reddit`、`🐦 Discord`、`🪙 Paypal`、`🎮 游戏平台`、`🍿 国外媒体`、`Ⓜ️ 微软服务`、`🍎 苹果服务`、`📽 哔哩哔哩`、`🍔 国内媒体`、`🍟 新浪微博`、`🌐 全球直连`、`🐟 漏网之鱼`（全部 `select`，可手动覆盖）。
 - **分流规则源**：anti-AD 去广告（`anti-ad-clash.yaml`）+ yfamilys 全套 `.rule`（mihomo 兼容 yaml payload，共 33 组，`RULE-SET` 顺序与 yfamilys 基础配置一致）。
 - **规则优先级**：`内网网段直连 → config/direct-domains.txt 白名单 → 去广告 → 分流 → GEOIP,CN → 漏网之鱼`。

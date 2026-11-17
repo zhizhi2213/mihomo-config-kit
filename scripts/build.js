@@ -30,6 +30,13 @@ const PRIVATE_CIDRS = [
 // 直连域名清单：外置为纯文本，按行维护，无需改代码
 const DIRECT_DOMAINS_FILE = path.resolve(__dirname, "..", "config", "direct-domains.txt");
 
+// 健康检查探测地址：必须走 HTTPS，部分机场中继对 80 端口直接断连，
+// 会刷出 "use of closed network connection" 的假失败（上游同款地址）
+const PROBE_URL = "https://www.gstatic.com/generate_204";
+
+// 订阅里常见的"伪节点"（流量/到期信息行），参与测速必然失败，建组时剔除
+const INFO_NODE_RE = "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|套餐到期|已用)";
+
 // ---------- 代理组名（唯一数据源，避免散落各处拼写不一致） ----------
 const G = {
   strategy: "🚀 策略选择",
@@ -231,6 +238,8 @@ function buildPatchSnippet() {
     G,
     ruleBase: YFAMILYS_RULE_BASE,
     antiAdUrl: ANTI_AD_URL,
+    probeUrl: PROBE_URL,
+    infoNodeRe: INFO_NODE_RE,
   };
 
   return `
@@ -255,8 +264,11 @@ function buildPatchSnippet() {
         });
       }
 
-      // --- 2. 按节点名匹配区域组 ---
-      var names = (cfg.proxies || []).map(function (p) { return p.name; });
+      // --- 2. 按节点名匹配区域组（先剔除流量/到期信息伪节点） ---
+      var infoRe = new RegExp(D.infoNodeRe, "i");
+      var names = (cfg.proxies || [])
+        .map(function (p) { return p.name; })
+        .filter(function (n) { return !infoRe.test(n); });
       function match(include, exclude) {
         var re = new RegExp(include, "i");
         var neg = exclude ? new RegExp(exclude, "i") : null;
@@ -271,9 +283,11 @@ function buildPatchSnippet() {
         regionGroups.push({
           name: r.name,
           type: "url-test",
-          url: "http://cp.cloudflare.com/generate_204",
+          url: D.probeUrl,
           interval: 600,
           tolerance: 50,
+          timeout: 5000,
+          lazy: true,
           proxies: matched
         });
       });
@@ -291,7 +305,7 @@ function buildPatchSnippet() {
       // --- 3. 重建代理组（整体替换上游融合分组） ---
       var groups = [
         { name: D.G.strategy, type: "select", proxies: strategyOptions },
-        { name: D.G.auto, type: "url-test", url: "http://cp.cloudflare.com/generate_204", interval: 600, tolerance: 50, proxies: nodeNames },
+        { name: D.G.auto, type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true, proxies: nodeNames },
         { name: D.G.manual, type: "select", proxies: nodeNames }
       ].concat(regionGroups);
       D.appGroups.forEach(function (a) {
@@ -362,6 +376,7 @@ function verifyPatchedScript(code, targetName) {
       { name: "日本 Tokyo 01", server: "jp.example.com", port: 10015, type: "ss", cipher: "aes-128-gcm", password: "123" },
       { name: "新加坡 SG 01", server: "sg.example.com", port: 10016, type: "ss", cipher: "aes-128-gcm", password: "123" },
       { name: "台湾 TW 01", server: "tw.example.com", port: 10017, type: "ss", cipher: "aes-128-gcm", password: "123" },
+      { name: "Traffic: 32.71 GB | 150 GB", server: "info.example.com", port: 1, type: "ss", cipher: "aes-128-gcm", password: "123" },
     ],
     "proxy-groups": [],
     rules: [],
@@ -418,6 +433,17 @@ function verifyPatchedScript(code, targetName) {
   const hkGroup = (out["proxy-groups"] || []).find((g) => g.name === "🇭🇰 香港节点");
   if (!hkGroup || !hkGroup.proxies.includes("🇭🇰 香港 IEPL 01")) {
     throw new Error(`[${targetName}] 校验失败：香港区域组未正确匹配节点`);
+  }
+
+  // --- 健康检查必须走 HTTPS（80 端口探测会被部分中继断连） + 剔除信息伪节点 ---
+  const urlTestGroups = (out["proxy-groups"] || []).filter((g) => g.type === "url-test");
+  const badProbe = urlTestGroups.filter((g) => !/^https:\/\//.test(String(g.url)));
+  if (badProbe.length > 0) {
+    throw new Error(`[${targetName}] 校验失败：测速组未使用 HTTPS 探测地址 -> ${badProbe.map((g) => g.name).join(", ")}`);
+  }
+  const infoLeak = (out["proxy-groups"] || []).filter((g) => (g.proxies || []).some((n) => /^Traffic/i.test(n)));
+  if (infoLeak.length > 0) {
+    throw new Error(`[${targetName}] 校验失败：信息伪节点混入代理组 -> ${infoLeak.map((g) => g.name).join(", ")}`);
   }
 
   // --- rule-providers ---
