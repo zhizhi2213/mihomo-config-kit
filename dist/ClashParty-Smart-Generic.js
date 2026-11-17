@@ -2122,11 +2122,12 @@ function main(config) {
       );
 
       // --- 3. 重建代理组（整体替换上游融合分组） ---
+      // 面板顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 区域节点组（区域组统一放最后）
       var groups = [
         { name: D.G.strategy, type: "select", proxies: strategyOptions },
         { name: D.G.auto, type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true, proxies: nodeNames },
         { name: D.G.manual, type: "select", proxies: nodeNames }
-      ].concat(regionGroups);
+      ];
       D.appGroups.forEach(function (a) {
         if (a.style === "proxy") groups.push({ name: a.name, type: "select", proxies: proxyOptions });
         else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
@@ -2134,7 +2135,7 @@ function main(config) {
         else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
         else groups.push({ name: a.name, type: "select", proxies: a.proxies });
       });
-      cfg["proxy-groups"] = groups;
+      cfg["proxy-groups"] = groups.concat(regionGroups);
 
       // --- 4. 重建规则源：anti-AD 去广告 + yfamilys 全套分流 ---
       var rp = {

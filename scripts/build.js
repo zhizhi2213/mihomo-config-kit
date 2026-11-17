@@ -303,11 +303,12 @@ function buildPatchSnippet() {
       );
 
       // --- 3. 重建代理组（整体替换上游融合分组） ---
+      // 面板顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 区域节点组（区域组统一放最后）
       var groups = [
         { name: D.G.strategy, type: "select", proxies: strategyOptions },
         { name: D.G.auto, type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true, proxies: nodeNames },
         { name: D.G.manual, type: "select", proxies: nodeNames }
-      ].concat(regionGroups);
+      ];
       D.appGroups.forEach(function (a) {
         if (a.style === "proxy") groups.push({ name: a.name, type: "select", proxies: proxyOptions });
         else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
@@ -315,7 +316,7 @@ function buildPatchSnippet() {
         else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
         else groups.push({ name: a.name, type: "select", proxies: a.proxies });
       });
-      cfg["proxy-groups"] = groups;
+      cfg["proxy-groups"] = groups.concat(regionGroups);
 
       // --- 4. 重建规则源：anti-AD 去广告 + yfamilys 全套分流 ---
       var rp = {
@@ -433,6 +434,12 @@ function verifyPatchedScript(code, targetName) {
   const hkGroup = (out["proxy-groups"] || []).find((g) => g.name === "🇭🇰 香港节点");
   if (!hkGroup || !hkGroup.proxies.includes("🇭🇰 香港 IEPL 01")) {
     throw new Error(`[${targetName}] 校验失败：香港区域组未正确匹配节点`);
+  }
+
+  // --- 区域节点组必须排在应用分流组之后（面板顺序） ---
+  const groupOrder = (out["proxy-groups"] || []).map((g) => g.name);
+  if (groupOrder.indexOf("🇭🇰 香港节点") < groupOrder.indexOf("🐟 漏网之鱼")) {
+    throw new Error(`[${targetName}] 校验失败：区域节点组未排在应用组之后 -> ${groupOrder.join(" | ")}`);
   }
 
   // --- 健康检查必须走 HTTPS（80 端口探测会被部分中继断连） + 剔除信息伪节点 ---
