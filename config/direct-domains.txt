@@ -37,6 +37,10 @@ ibytedapm.com
 bytedance.com
 bytedance.net
 
+# ctobsnssdk.com 是与 snssdk.com 分开注册的独立域，字节埋点/上报用（如 mcs.ctobsnssdk.com），
+# 被 scki-fused-010-ad-domain 拦截后会导致豆包等页面功能异常
+ctobsnssdk.com
+
 # --- 钉钉：static.dingtalk.com 被按域名 REJECT（www/api/login 正常，仅静态资源域被拦），
 #     表现是页面框架能开、图片和 JS/CSS 全部加载失败 ---
 dingtalk.com

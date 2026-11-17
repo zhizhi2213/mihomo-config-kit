@@ -1749,6 +1749,7 @@ function main(config) {
         "DOMAIN-SUFFIX,ibytedapm.com,DIRECT",
         "DOMAIN-SUFFIX,bytedance.com,DIRECT",
         "DOMAIN-SUFFIX,bytedance.net,DIRECT",
+        "DOMAIN-SUFFIX,ctobsnssdk.com,DIRECT",
         "DOMAIN-SUFFIX,dingtalk.com,DIRECT",
         "DOMAIN-SUFFIX,dingtalkapps.com,DIRECT",
         "DOMAIN-SUFFIX,dingtalkcloud.com,DIRECT"
