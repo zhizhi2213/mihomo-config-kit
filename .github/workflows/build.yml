@@ -11,7 +11,7 @@ on:
     paths:
       - 'scripts/**'
       - 'config/**'
-      - '.github/workflows/sync.yml'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: write
