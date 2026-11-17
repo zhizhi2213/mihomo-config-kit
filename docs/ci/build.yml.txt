@@ -1,0 +1,48 @@
+name: Build Override Script
+
+on:
+  schedule:
+    # 每周一北京时间 04:00 重建一次（规则源有更新时保持产物新鲜）
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - 'config/**'
+      - '.github/workflows/sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate override script
+        run: node scripts/build.js
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/
+          if git diff --staged --quiet; then
+            echo "No changes in dist/."
+          else
+            git commit -m "chore: rebuild dist/mihomo-config.js"
+            git push
+          fi
+# ------------------------------------------------------------
+# 用法：把本文件内容整段替换 GitHub 仓库的 .github/workflows/sync.yml
+# （或在本地执行 gh auth refresh -s workflow 后由工具自动推送）
+# ------------------------------------------------------------
