@@ -1,6 +1,6 @@
 // ============================================================
 // mihomo-config-kit v1.0.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
-// 生成时间：2026-11-17 10:55:41 UTC
+// 生成时间：2026-11-17 11:05:41 UTC
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组
@@ -9,7 +9,7 @@
 
 var MIHOMO_KIT = {
   "version": "1.0.0",
-  "buildTime": "2026-11-17 10:55:41 UTC",
+  "buildTime": "2026-11-17 11:05:41 UTC",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
