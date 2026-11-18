@@ -59,6 +59,8 @@
 
 > **v1.4.0 的测速与 provider 增强**：所有 `url-test` 组统一 `interval: 300` / `tolerance: 30` / `max-failed-times: 5` / `expected-status: 204`（配合 `generate_204`），失效节点更快被剔除；provider 模式补齐地区组、`health-check` 与空组兜底，详见「分组顺序」。已用内联 90 节点与 provider-only 两份真实配置分别跑过 `mihomo -t`，并短启动确认 `filter` 正则可编译。
 
+> **v1.4.1 内部清理（分流行为与 v1.4.0 完全一致）**：移除 `skip-domain` 里的 `"Mijia Cloud"`——它不是合法域名，只在 SNI 恰好等于该字符串时才会精确命中（米家设备场景），常规域名匹配用不到；若米家设备经代理出现断连，单独加回这一条即可。另外清掉产物 `MIHOMO_KIT.G` 里 19 个运行时不读的死键、`urlTestGroup` 空壳包装，以及 `APP_GROUPS` 中已无组使用的 `fixed` 兜底分支。自检新增 G 键一致性、style 白名单、skip-domain 域名合法性三条断言防回流。
+
 > 原单一 `ai.rule`（国内+国外 AI 混合）已拆为 `ai-cn.rule`（→ 🇨🇳 国内 AI，直连）与 `ai-global.rule`（→ 🌍 国外 AI，代理）。注意 `ai-global.rule` 里也含 `bytednsdoc.com` / `zijieapi.com` / `bytedance.com` 等字节域名，会被送进「国外 AI」代理组；置顶直连白名单 `config/direct-domains.txt` 已包含这些域名，按住它们直连——**因此白名单不可删**。
 
 > ⚠️ 健康检查统一走 `https://www.gstatic.com/generate_204`。**不要改回 `http://`**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
@@ -118,7 +120,7 @@ DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
 node scripts/build.js
 ```
 
-生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置（含 `arc`、`#RULES`、NTP 位置、社区清单引用与 provider 定义）、分组顺序、区域匹配、伪节点剔除、规则目标是否存在（会跳过 `no-resolve` 等修饰符）、组是否自引用、测速容错参数、`proxy-providers` 两种形态（内联节点 / 仅 provider）是否兼容。
+生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置（含 `arc`、`#RULES`、NTP 位置、社区清单引用与 provider 定义）、分组顺序、区域匹配、伪节点剔除、规则目标是否存在（会跳过 `no-resolve` 等修饰符）、组是否自引用、测速容错参数、`proxy-providers` 两种形态（内联节点 / 仅 provider）是否兼容，以及产物数据区无死数据（G 键与运行时引用一致）、style 枚举合法、`skip-domain` 不含非域名条目。
 
 想再做一层内核校验，可以拿真实订阅跑一遍再交给 mihomo：
 

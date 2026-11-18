@@ -149,6 +149,8 @@ cp "$HOME/Library/Application Support/com.follow.clash/"{GEOIP.metadb,GEOSITE.da
 | **区域组排在应用组之后** | 用户明确要求面板顺序：策略 → 自动/手动 → 应用分流 → 漏网之鱼 → 区域节点组（v1.4.0 起已无广告拦截组）。自检会断言 |
 | **yfamilys 分流源必须是 `behavior: classical` + `format: yaml`** | yfamilys 的 `.rule` 文件是 `payload:` 列表格式；mrs（二进制 succinct-trie）无法用文本方式校验，排障时极难定位。唯一例外是社区 fake-ip 清单（`behavior: domain` + `format: mrs`），它只供 DNS 查询、不产出 `RULE-SET` |
 | **本项目不含去广告规则集** | v1.4.0 起移除 anti-AD：其 payload 是 `+.域名` 的 domain 格式，用 `classical` 加载会逐条刷 `parse classical rule ... error`、实际大面积失效。要恢复请改接 `behavior: domain` 的源，别用旧写法 |
+| **`skip-domain` 只放合法域名表达式** | 内核按域名模式匹配；社区脚本里的 `"Mijia Cloud"` 带空格、不是域名，只在 SNI 恰好等于该串时（米家设备）才精确命中，常规域名永不命中。主线 v1.4.1 已移除，自检会拦截非域名条目 |
+| **产物 `MIHOMO_KIT.G` 只放运行时引用的键** | 其余组名在构建期已固化进 `appGroups` / `rulesets`，多打包就是死数据；自检比对 `D.G.*` 引用与打包键，新增引用忘了补会直接构建失败 |
 | **`.github/workflows/` 需要 `workflow` scope** | OAuth token 默认没有，push 会被拒：`refusing to allow an OAuth App to create or update workflow`。解法：`gh auth refresh -s workflow` |
 | **绝不提交凭据** | 订阅 URL（含 token）、节点密码、机场域名一律不进仓库。仓库是公开的 |
 

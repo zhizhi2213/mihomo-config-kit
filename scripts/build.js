@@ -7,7 +7,7 @@
  * DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules，不依赖任何上游项目。
  *
  * 只需要维护两个地方：
- * - config/direct-domains.txt   直连白名单（置顶，防止去广告规则误杀）
+ * - config/direct-domains.txt   直连白名单（置顶，按住 ai-global.rule 里的字节系域名走直连）
  * - 本文件顶部的数据区          区域正则 / 应用分组 / 分流规则源
  */
 
@@ -18,7 +18,7 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
 const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
-const VERSION = "1.4.0";
+const VERSION = "1.4.1";
 
 // ---------- 基础参数 ----------
 const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
@@ -45,9 +45,8 @@ const GEOX_URL = {
   geosite: "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@release/geosite.dat",
 };
 
-// Sniffer 跳过嗅探的域名（米家设备 SNI 及开启证书固定/特殊校验的服务）
+// Sniffer 跳过嗅探的域名（证书固定 / 特殊校验的服务；只放合法域名匹配表达式）
 const SNIFFER_SKIP_DOMAINS = [
-  "Mijia Cloud",
   "+.apple.com",
   "+.openai.com",
   "+.oaistatic.com",
@@ -80,8 +79,8 @@ const FAKE_IP_FILTER = [
   "+.market.xiaomi.com",
   "geosite:private",
   // 关键项：国内域名必须拿真实 IP，否则下面的 GEOIP,CN 永远匹配不到 fake-ip 假地址，
-  // 未收录的国内站点会落 MATCH 走代理。Syzygy33 用 rule-set:cn-domain 同理（那边有 mrs 源，
-  // 这里用内核内置 geosite:cn，零新增规则源、口径一致）。
+  // 未收录的国内站点会落 MATCH 走代理。Syzygy33 用 rule-set:cn-domain 同理；
+  // 这里用内核内置 geosite:cn，不额外增加国内域名规则源、口径一致。
   "geosite:cn",
   // 社区清单补齐官方 geosite 未收录的 real-ip 刚需域名（NTP / 局域网发现 / 游戏联机等）
   "rule-set:" + COMMUNITY_FAKEIP_FILTER_KEY,
@@ -136,7 +135,7 @@ const REGION_GROUPS = [
   { name: "🇮🇳 印度节点", include: "印度|india|孟买|mumbai|新德里|delhi", exclude: "" },
 ];
 
-// ---------- 应用分流组（style 决定可选项，运行时按实际存在的区域组动态生成） ----------
+// ---------- 应用分流组（style 仅支持 proxy / direct / bilibili / final，构建期有断言） ----------
 const APP_GROUPS = [
   { name: G.aiCn, style: "direct" },
   { name: G.ai, style: "proxy" },
@@ -258,7 +257,17 @@ function buildData() {
     regions: REGION_GROUPS,
     appGroups: APP_GROUPS,
     rulesets: RULESETS.map(([key, target]) => ({ key, target })),
-    G,
+    // 运行时只读下面 7 个键；其余组名已在构建期固化进 appGroups / rulesets，
+    // 打包进产物就是死数据，故只输出运行时真正引用的键（自检会核对两者一致）。
+    G: {
+      strategy: G.strategy,
+      auto: G.auto,
+      manual: G.manual,
+      direct: G.direct,
+      final: G.final,
+      hk: G.hk,
+      tw: G.tw,
+    },
     ruleBase: RULE_BASE,
   };
 }
@@ -453,13 +462,9 @@ function main(config) {
         .map(function (g) { return g.name; })
     );
 
-    function urlTestGroup(extra) {
-      return withProbe(extra);
-    }
-
     var groups = [
       { name: D.G.strategy, type: "select", proxies: strategyOptions },
-      urlTestGroup(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
+      withProbe(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
       useProvider ? { name: D.G.manual, type: "select", use: providers } : { name: D.G.manual, type: "select", proxies: nodeNames }
     ];
 
@@ -468,7 +473,6 @@ function main(config) {
       else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
       else if (a.style === "bilibili") groups.push({ name: a.name, type: "select", proxies: bilibiliOptions });
       else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
-      else groups.push({ name: a.name, type: "select", proxies: a.proxies });
     });
 
     cfg["proxy-groups"] = groups.concat(regionGroups);
@@ -531,7 +535,6 @@ function generate() {
 // DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
 // 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
-// v1.4.0：移除 anti-AD（classical 格式不兼容）；provider 模式补齐地区组 + health-check；测速统一 300s/tolerance 30
 // ============================================================
 
 var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
@@ -548,6 +551,16 @@ function verify(code) {
 
   const data = buildData();
   const mk = (name) => ({ name, server: "x.example.com", port: 443, type: "ss", cipher: "aes-128-gcm", password: "x" });
+
+  // 产物数据区不得有死数据：G 只保留运行时真正引用的键
+  const runtimeGKeys = [...new Set((code.match(/D\.G\.[A-Za-z]+/g) || []).map((s) => s.slice(4)))].sort();
+  const packedGKeys = Object.keys(sandbox.MIHOMO_KIT.G).sort();
+  if (runtimeGKeys.join() !== packedGKeys.join()) {
+    throw new Error(`产物：G 键与运行时引用不一致 -> 打包 ${packedGKeys} / 引用 ${runtimeGKeys}`);
+  }
+  // style 枚举固定，运行时已无兜底分支；未知 style 会静默丢组，必须在构建期拦住
+  const badStyle = data.appGroups.filter((a) => !["proxy", "direct", "bilibili", "final"].includes(a.style));
+  if (badStyle.length) throw new Error(`分组：未知 style -> ${badStyle.map((a) => a.name).join(", ")}`);
 
   // --- 场景 A：内联节点（FlClash 常见形态） ---
   const inline = sandbox.main({
@@ -587,9 +600,13 @@ function verify(code) {
   }
   if (!inline.sniffer || inline.sniffer.enable !== true) throw new Error("Sniffer：未开启");
   if (inline.sniffer["skip-dst-address"].indexOf("192.168.0.0/16") === -1) throw new Error("Sniffer：内网网段未豁免");
-  if (!inline.sniffer["skip-domain"] || !inline.sniffer["skip-domain"].includes("Mijia Cloud") || !inline.sniffer["skip-domain"].includes("+.openai.com")) {
-    throw new Error("Sniffer：skip-domain 未包含 Mijia Cloud / +.openai.com");
+  const skipDomains = inline.sniffer["skip-domain"] || [];
+  if (!skipDomains.includes("+.openai.com") || !skipDomains.includes("+.apple.com")) {
+    throw new Error("Sniffer：skip-domain 缺少 Apple / OpenAI 例外");
   }
+  // skip-domain 按域名模式匹配；非域名字符串（含空格等）永远不会命中，禁止再混入
+  const badSkipDomain = skipDomains.filter((d) => !/^[+*]?\.?[a-z0-9.*-]+\.[a-z*]{2,}$/i.test(String(d)));
+  if (badSkipDomain.length) throw new Error(`Sniffer：skip-domain 含非域名条目 -> ${badSkipDomain.join(", ")}`);
 
   const rules = inline.rules || [];
   if (rules[0] !== "IP-CIDR,127.0.0.0/8,DIRECT") throw new Error(`规则：首条应为内网直连，实际 ${rules[0]}`);
@@ -606,7 +623,7 @@ function verify(code) {
   if (missing.length) throw new Error(`规则：直连白名单未注入 -> ${missing.slice(0, 3).join(" | ")}`);
   if (rules.indexOf(data.directRules[0]) !== PRIVATE_CIDRS.length + 3) throw new Error("规则：白名单未紧跟内网/private/NTP 规则置顶");
   if (!rules.includes("DOMAIN-SUFFIX,googleapis.cn,🚀 策略选择")) throw new Error("规则：googleapis.cn 修复规则缺失");
-  if (rules.some((r) => r.includes("anti-ad"))) throw new Error("规则：v1.4.0 起不应再有 anti-AD 规则");
+  if (rules.some((r) => r.includes("anti-ad"))) throw new Error("规则：不应再有 anti-AD 规则");
   if (!rules.includes("RULE-SET,ai-cn,🇨🇳 国内 AI")) throw new Error("规则：国内 AI 分组未注入");
   if (!rules.includes("RULE-SET,ai-global,🌍 国外 AI")) throw new Error("规则：国外 AI 分组未注入");
   if (rules.includes("RULE-SET,ai,🤖️ 人工智能")) throw new Error("规则：旧混合 AI 分组不应存在");
@@ -660,8 +677,8 @@ function verify(code) {
 
   // 规则源
   const rp = inline["rule-providers"] || {};
-  if (rp["anti-ad"]) throw new Error("规则源：v1.4.0 起不应再有 anti-AD 源");
-  if (groupNames.has("🛑 广告拦截")) throw new Error("分组：v1.4.0 起不应再有广告拦截组");
+  if (rp["anti-ad"]) throw new Error("规则源：不应再有 anti-AD 源");
+  if (groupNames.has("🛑 广告拦截")) throw new Error("分组：不应再有广告拦截组");
   for (const rs of data.rulesets) {
     if (!rp[rs.key] || !String(rp[rs.key].url).endsWith(`/${rs.key}.rule`)) {
       throw new Error(`规则源：${rs.key} 缺失或 URL 错误`);

@@ -1,15 +1,14 @@
 // ============================================================
-// mihomo-config-kit v1.4.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.4.1 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
 // 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
-// v1.4.0：移除 anti-AD（classical 格式不兼容）；provider 模式补齐地区组 + health-check；测速统一 300s/tolerance 30
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.4.0",
+  "version": "1.4.1",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -77,7 +76,6 @@ var MIHOMO_KIT = {
     "geosite": "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
   },
   "snifferSkipDomains": [
-    "Mijia Cloud",
     "+.apple.com",
     "+.openai.com",
     "+.oaistatic.com",
@@ -369,25 +367,6 @@ var MIHOMO_KIT = {
     "strategy": "🚀 策略选择",
     "auto": "♻️ 自动选择",
     "manual": "👐 手动选择",
-    "ai": "🌍 国外 AI",
-    "aiCn": "🇨🇳 国内 AI",
-    "telegram": "📲 Telegram",
-    "youtube": "📹 YouTube",
-    "netflix": "🎥 Netflix",
-    "disney": "🎬 Disney+",
-    "spotify": "🎻 Spotify",
-    "twitter": "📄 Twitter",
-    "facebook": "👤 Facebook",
-    "reddit": "📖 Reddit",
-    "discord": "🐦 Discord",
-    "paypal": "🪙 Paypal",
-    "game": "🎮 游戏平台",
-    "foreignMedia": "🍿 国外媒体",
-    "microsoft": "Ⓜ️ 微软服务",
-    "apple": "🍎 苹果服务",
-    "bilibili": "📽 哔哩哔哩",
-    "cnMedia": "🍔 国内媒体",
-    "weibo": "🍟 新浪微博",
     "direct": "🌐 全球直连",
     "final": "🐟 漏网之鱼",
     "hk": "🇭🇰 香港节点",
@@ -585,13 +564,9 @@ function main(config) {
         .map(function (g) { return g.name; })
     );
 
-    function urlTestGroup(extra) {
-      return withProbe(extra);
-    }
-
     var groups = [
       { name: D.G.strategy, type: "select", proxies: strategyOptions },
-      urlTestGroup(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
+      withProbe(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
       useProvider ? { name: D.G.manual, type: "select", use: providers } : { name: D.G.manual, type: "select", proxies: nodeNames }
     ];
 
@@ -600,7 +575,6 @@ function main(config) {
       else if (a.style === "direct") groups.push({ name: a.name, type: "select", proxies: directOptions });
       else if (a.style === "bilibili") groups.push({ name: a.name, type: "select", proxies: bilibiliOptions });
       else if (a.style === "final") groups.push({ name: a.name, type: "select", proxies: [D.G.strategy, "DIRECT"] });
-      else groups.push({ name: a.name, type: "select", proxies: a.proxies });
     });
 
     cfg["proxy-groups"] = groups.concat(regionGroups);
