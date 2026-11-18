@@ -13,10 +13,10 @@
 
 | 模块 | 内容 |
 | --- | --- |
-| DNS | fake-ip（`198.18.0.1/16`）、DoH 主解析（阿里 / 腾讯）、境外 fallback（Cloudflare / Google）、`use-system-hosts: true`（支持 SwitchHosts / `/etc/hosts`） |
+| DNS | fake-ip（`198.18.0.1/16`）、DoH 主解析（阿里 / 腾讯）、境外 fallback（Cloudflare / Google，带 `#RULES`）、`use-system-hosts: true`、`cache-algorithm: arc`；fake-ip 例外含内置 `geosite:cn` 与社区 `rule-set:fakeip-filter` |
 | Sniffer | 识别 IP 直连中的域名，内网网段加入 `skip-dst-address`，避免本地 hosts 解析出的内网 IP 被还原 |
 | 代理组 | 策略选择 / 自动选择 / 手动选择 / 广告拦截 / 21 个应用分流组（含国内/国外 AI）/ 区域节点组 |
-| 规则源 | anti-AD 去广告 + yfamilys 34 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload） |
+| 规则源 | anti-AD 去广告 + yfamilys 34 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload）+ 1 份社区 fake-ip 豁免清单（`.mrs`，只供 DNS 查询，不生成分流规则） |
 | 规则 | 见下方优先级 |
 
 ### 分组顺序
@@ -42,14 +42,19 @@
 
 ```
 1  内网网段直连         IP-CIDR 127/8、10/8、172.16/12、192.168/16 → DIRECT
-2  直连白名单           config/direct-domains.txt（置顶，防止去广告规则误杀）
-3  去广告               RULE-SET,anti-ad → 🛑 广告拦截
-4  应用分流             34 组 yfamilys RULE-SET（国内 AI → 🇨🇳 国内 AI 直连；国外 AI → 🌍 国外 AI 代理）
-5  国内兜底            GEOIP,CN → 🌐 全球直连（按 IP）；GEOSITE,cn → 🌐 全球直连（按域名）
-6  兜底                MATCH → 🐟 漏网之鱼
+2  系统对时直连         AND,((DST-PORT,123),(NETWORK,udp)) → DIRECT（早于所有 RULE-SET）
+3  直连白名单           config/direct-domains.txt（置顶，防止去广告规则误杀）
+4  去广告               RULE-SET,anti-ad → 🛑 广告拦截
+5  应用分流             34 组 yfamilys RULE-SET（国内 AI → 🇨🇳 国内 AI 直连；国外 AI → 🌍 国外 AI 代理）
+6  国内兜底            GEOIP,CN → 🌐 全球直连（按 IP）；GEOSITE,cn → 🌐 全球直连（按域名）
+7  兜底                MATCH → 🐟 漏网之鱼
 ```
 
 > **国内域名为何要 `geosite:cn`**：DNS 是 fake-ip 模式，域名默认拿到 `198.18.x.x` 假 IP，`GEOIP,CN` 按 IP 判断时永远匹配不到，未收录的国内站点会掉进 `MATCH` 走代理。v1.2.0 在 `fake-ip-filter` 加内置 `geosite:cn` 让国内域名拿真实 IP，并在规则层补一条 `GEOSITE,cn` 按域名兜底（捞回解析到境外 CDN 的国内站点）。两处同源、零新增规则源——与 Syzygy33 脚本的 `rule-set:cn-domain` 三层联动同思路（那边用 mrs 规则源，这里用内核内置 geosite）。删掉任一处都会让国内直连退化。
+
+> **v1.3.0 的 DNS / 对时优化**：① `cache-algorithm: arc`，比默认 LRU 命中率更高、内存更省；② 境外 fallback 的三个 DoH 全部加 `#RULES`，让 DoH 请求本身按分流规则出站——`1.1.1.1` / `8.8.8.8` / `dns.google` 在国内直连基本不可达，不加后缀 fallback 形同虚设；③ `AND,((DST-PORT,123),(NETWORK,udp)),DIRECT` 排在所有 `RULE-SET` 之前，很多节点丢弃或限制 UDP 123，时钟漂移会连带导致 DoH 的 TLS 证书校验失败。三项都是零面板变化。
+
+> **社区 fake-ip 豁免清单**：`dns.fake-ip-filter` 除手工白名单与内置 `geosite:cn` 外，还引用 `rule-set:fakeip-filter`（[wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`），补齐官方 geosite 未收录、但必须拿真实 IP 的域名（NTP / 局域网发现 / 游戏联机等）。它只作为 `rule-provider` 供 DNS 查询，**不生成任何 `RULE-SET` 规则**。`.mrs` 需要较新的 mihomo 内核（已在 1.19.33 实测加载成功）；清单下载失败时该条自动忽略，手工项与 `geosite:cn` 仍生效。
 
 > 原单一 `ai.rule`（国内+国外 AI 混合）已拆为 `ai-cn.rule`（→ 🇨🇳 国内 AI，直连）与 `ai-global.rule`（→ 🌍 国外 AI，代理）。注意 `ai-global.rule` 里也含 `bytednsdoc.com` / `zijieapi.com` / `bytedance.com` 等字节域名，会被送进「国外 AI」代理组；置顶直连白名单 `config/direct-domains.txt` 已包含这些域名，按住它们直连——**因此白名单不可删**。
 
@@ -100,6 +105,7 @@ DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
 | `RULESETS` | 分流规则文件 → 代理组映射，数组顺序即 `RULE-SET` 顺序 |
 | `PROBE_URL` | 健康检查地址（必须 HTTPS） |
 | `FAKE_IP_FILTER` | fake-ip 例外域名 |
+| `COMMUNITY_FAKEIP_FILTER_KEY` / `_URL` | 社区 fake-ip 豁免清单的 provider 名与下载地址 |
 
 ### 构建
 
@@ -107,7 +113,7 @@ DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
 node scripts/build.js
 ```
 
-生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置、分组顺序、区域匹配、伪节点剔除、规则目标是否存在、组是否自引用、`proxy-providers` 形态是否兼容。
+生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置（含 `arc`、`#RULES`、NTP 位置、社区清单引用与 provider 定义）、分组顺序、区域匹配、伪节点剔除、规则目标是否存在、组是否自引用、`proxy-providers` 形态是否兼容。
 
 想再做一层内核校验，可以拿真实订阅跑一遍再交给 mihomo：
 

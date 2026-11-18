@@ -1,13 +1,14 @@
 // ============================================================
-// mihomo-config-kit v1.2.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.3.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
+// DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
+// 规则顺序：内网直连 → NTP 直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -54,8 +55,11 @@ var MIHOMO_KIT = {
     "*.battlenet.com",
     "*.blzstatic.cn",
     "+.market.xiaomi.com",
-    "geosite:cn"
+    "geosite:cn",
+    "rule-set:fakeip-filter"
   ],
+  "communityFakeIpFilterKey": "fakeip-filter",
+  "communityFakeIpFilterUrl": "https://cdn.jsdmirror.com/gh/wwqgtxx/clash-rules@release/fakeip-filter.mrs",
   "probeUrl": "https://www.gstatic.com/generate_204",
   "infoNodeRe": "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|已用)",
   "regions": [
@@ -428,11 +432,18 @@ function main(config) {
     dns.ipv6 = false;
     dns["enhanced-mode"] = "fake-ip";
     dns["fake-ip-range"] = "198.18.0.1/16";
+    dns["cache-algorithm"] = "arc";
     dns["use-system-hosts"] = true;
     dns["default-nameserver"] = ["223.5.5.5", "119.29.29.29"];
     dns.nameserver = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
     dns["proxy-server-nameserver"] = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
-    dns.fallback = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "https://dns.google/dns-query"];
+    // #RULES：让境外 fallback 的 DoH 请求本身按分流规则出站，而不是裸直连
+    // （1.1.1.1 / 8.8.8.8 / dns.google 在国内直连基本不可达，不加后缀等于 fallback 形同虚设）
+    dns.fallback = [
+      "https://1.1.1.1/dns-query#RULES",
+      "https://8.8.8.8/dns-query#RULES",
+      "https://dns.google/dns-query#RULES"
+    ];
     dns["fallback-filter"] = { geoip: true, "geoip-code": "CN", ipcidr: ["240.0.0.0/4"] };
     var fakeIp = Array.isArray(dns["fake-ip-filter"]) ? dns["fake-ip-filter"].slice() : [];
     fakeIp = mihomoKitUnique(fakeIp.concat(D.fakeIpFilter));
@@ -543,11 +554,22 @@ function main(config) {
         interval: 86400
       };
     });
+    // 仅供 dns.fake-ip-filter 的 "rule-set:<key>" 查询，不生成任何 RULE-SET 规则
+    rp[D.communityFakeIpFilterKey] = {
+      type: "http",
+      behavior: "domain",
+      format: "mrs",
+      url: D.communityFakeIpFilterUrl,
+      path: "./providers/rules/" + D.communityFakeIpFilterKey + ".mrs",
+      interval: 86400
+    };
     cfg["rule-providers"] = rp;
 
-    // ---------- 8. 规则：内网直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
+    // ---------- 8. 规则：内网直连 → NTP 直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
     var rules = [];
     D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+    // 系统对时优先于业务分流：很多节点丢弃/限制 UDP 123，时间偏差会连带让 DoH 的 TLS 证书校验失败
+    rules.push("AND,((DST-PORT,123),(NETWORK,udp)),DIRECT");
     D.directRules.forEach(function (r) { rules.push(r); });
     rules.push("RULE-SET,anti-ad," + D.G.adblock);
     D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });

@@ -18,10 +18,17 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
 const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 
 // ---------- 基础参数 ----------
 const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
+
+// 社区维护的 fake-ip 豁免清单（wwqgtxx/clash-rules，内核内置 geosite 未收录的部分）。
+// 通过 dns.fake-ip-filter 的 rule-set: 引用，不产出任何 RULE-SET 规则；mrs 格式需较新 mihomo 内核。
+// 清单下载失败时该条自动忽略，手工过滤项与 geosite:cn 仍然生效。
+const COMMUNITY_FAKEIP_FILTER_KEY = "fakeip-filter";
+const COMMUNITY_FAKEIP_FILTER_URL =
+  "https://cdn.jsdmirror.com/gh/wwqgtxx/clash-rules@release/fakeip-filter.mrs";
 
 // 健康检查探测地址：必须 HTTPS。部分机场中继对 80 端口直接断连，
 // 会刷出 "use of closed network connection" 的假失败。
@@ -50,6 +57,8 @@ const FAKE_IP_FILTER = [
   // 未收录的国内站点会落 MATCH 走代理。Syzygy33 用 rule-set:cn-domain 同理（那边有 mrs 源，
   // 这里用内核内置 geosite:cn，零新增规则源、口径一致）。
   "geosite:cn",
+  // 社区清单补齐官方 geosite 未收录的 real-ip 刚需域名（NTP / 局域网发现 / 游戏联机等）
+  "rule-set:" + COMMUNITY_FAKEIP_FILTER_KEY,
 ];
 
 // ---------- 代理组名 ----------
@@ -214,6 +223,8 @@ function buildData() {
     privateCidrs: PRIVATE_CIDRS,
     directRules: loadDirectRules(),
     fakeIpFilter: FAKE_IP_FILTER,
+    communityFakeIpFilterKey: COMMUNITY_FAKEIP_FILTER_KEY,
+    communityFakeIpFilterUrl: COMMUNITY_FAKEIP_FILTER_URL,
     probeUrl: PROBE_URL,
     infoNodeRe: INFO_NODE_RE,
     regions: REGION_GROUPS,
@@ -273,11 +284,18 @@ function main(config) {
     dns.ipv6 = false;
     dns["enhanced-mode"] = "fake-ip";
     dns["fake-ip-range"] = "198.18.0.1/16";
+    dns["cache-algorithm"] = "arc";
     dns["use-system-hosts"] = true;
     dns["default-nameserver"] = ["223.5.5.5", "119.29.29.29"];
     dns.nameserver = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
     dns["proxy-server-nameserver"] = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
-    dns.fallback = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "https://dns.google/dns-query"];
+    // #RULES：让境外 fallback 的 DoH 请求本身按分流规则出站，而不是裸直连
+    // （1.1.1.1 / 8.8.8.8 / dns.google 在国内直连基本不可达，不加后缀等于 fallback 形同虚设）
+    dns.fallback = [
+      "https://1.1.1.1/dns-query#RULES",
+      "https://8.8.8.8/dns-query#RULES",
+      "https://dns.google/dns-query#RULES"
+    ];
     dns["fallback-filter"] = { geoip: true, "geoip-code": "CN", ipcidr: ["240.0.0.0/4"] };
     var fakeIp = Array.isArray(dns["fake-ip-filter"]) ? dns["fake-ip-filter"].slice() : [];
     fakeIp = mihomoKitUnique(fakeIp.concat(D.fakeIpFilter));
@@ -388,11 +406,22 @@ function main(config) {
         interval: 86400
       };
     });
+    // 仅供 dns.fake-ip-filter 的 "rule-set:<key>" 查询，不生成任何 RULE-SET 规则
+    rp[D.communityFakeIpFilterKey] = {
+      type: "http",
+      behavior: "domain",
+      format: "mrs",
+      url: D.communityFakeIpFilterUrl,
+      path: "./providers/rules/" + D.communityFakeIpFilterKey + ".mrs",
+      interval: 86400
+    };
     cfg["rule-providers"] = rp;
 
-    // ---------- 8. 规则：内网直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
+    // ---------- 8. 规则：内网直连 → NTP 直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
     var rules = [];
     D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+    // 系统对时优先于业务分流：很多节点丢弃/限制 UDP 123，时间偏差会连带让 DoH 的 TLS 证书校验失败
+    rules.push("AND,((DST-PORT,123),(NETWORK,udp)),DIRECT");
     D.directRules.forEach(function (r) { rules.push(r); });
     rules.push("RULE-SET,anti-ad," + D.G.adblock);
     D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
@@ -417,8 +446,9 @@ function generate() {
 // mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
+// DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
+// 规则顺序：内网直连 → NTP 直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
@@ -452,14 +482,25 @@ function verify(code) {
 
   if (!inline.dns || inline.dns["use-system-hosts"] !== true) throw new Error("DNS：use-system-hosts 未开启");
   if (inline.dns["enhanced-mode"] !== "fake-ip") throw new Error("DNS：未使用 fake-ip 模式");
+  if (inline.dns["cache-algorithm"] !== "arc") throw new Error("DNS：cache-algorithm 未设为 arc");
+  const fallbacks = inline.dns.fallback || [];
+  if (!fallbacks.length || fallbacks.some((u) => !String(u).endsWith("#RULES"))) {
+    throw new Error("DNS：境外 fallback 缺少 #RULES（国内直连不可达，fallback 会失效）");
+  }
   if (!inline.sniffer || inline.sniffer.enable !== true) throw new Error("Sniffer：未开启");
   if (inline.sniffer["skip-dst-address"].indexOf("192.168.0.0/16") === -1) throw new Error("Sniffer：内网网段未豁免");
 
   const rules = inline.rules || [];
   if (rules[0] !== "IP-CIDR,127.0.0.0/8,DIRECT") throw new Error(`规则：首条应为内网直连，实际 ${rules[0]}`);
+  const ntpRule = "AND,((DST-PORT,123),(NETWORK,udp)),DIRECT";
+  const ntpIdx = rules.indexOf(ntpRule);
+  const firstRuleSet = rules.findIndex((r) => r.startsWith("RULE-SET,"));
+  if (ntpIdx === -1 || firstRuleSet === -1 || ntpIdx > firstRuleSet) {
+    throw new Error("规则：NTP 直连缺失或未排在所有 RULE-SET 之前");
+  }
   const missing = data.directRules.filter((r) => !rules.includes(r));
   if (missing.length) throw new Error(`规则：直连白名单未注入 -> ${missing.slice(0, 3).join(" | ")}`);
-  if (rules.indexOf(data.directRules[0]) !== PRIVATE_CIDRS.length) throw new Error("规则：白名单未紧跟内网规则置顶");
+  if (rules.indexOf(data.directRules[0]) !== PRIVATE_CIDRS.length + 1) throw new Error("规则：白名单未紧跟内网/NTP 规则置顶");
   if (!rules.includes("RULE-SET,anti-ad,🛑 广告拦截")) throw new Error("规则：anti-AD 未注入");
   if (!rules.includes("RULE-SET,ai-cn,🇨🇳 国内 AI")) throw new Error("规则：国内 AI 分组未注入");
   if (!rules.includes("RULE-SET,ai-global,🌍 国外 AI")) throw new Error("规则：国外 AI 分组未注入");
@@ -469,6 +510,9 @@ function verify(code) {
   if (rules.indexOf("GEOSITE,cn,🌐 全球直连") > rules.indexOf("MATCH,🐟 漏网之鱼")) throw new Error("规则：GEOSITE,cn 必须在 MATCH 之前");
   const fakeIp = inline.dns["fake-ip-filter"] || [];
   if (!fakeIp.includes("geosite:cn")) throw new Error("DNS：fake-ip-filter 缺少 geosite:cn（GEOIP,CN 会失效）");
+  if (!fakeIp.includes("rule-set:" + data.communityFakeIpFilterKey)) {
+    throw new Error("DNS：fake-ip-filter 缺少社区豁免清单 rule-set 引用");
+  }
 
   const groups = inline["proxy-groups"] || [];
   const groupNames = new Set(groups.map((g) => g.name));
@@ -509,6 +553,14 @@ function verify(code) {
     if (!rp[rs.key] || !String(rp[rs.key].url).endsWith(`/${rs.key}.rule`)) {
       throw new Error(`规则源：${rs.key} 缺失或 URL 错误`);
     }
+  }
+  const communityProvider = rp[data.communityFakeIpFilterKey];
+  if (!communityProvider || communityProvider.format !== "mrs" ||
+      communityProvider.behavior !== "domain" || communityProvider.url !== data.communityFakeIpFilterUrl) {
+    throw new Error("规则源：社区 fake-ip-filter 清单缺失或格式错误");
+  }
+  if (rules.some((r) => r.startsWith("RULE-SET," + data.communityFakeIpFilterKey))) {
+    throw new Error("规则源：社区豁免清单只能供 DNS 查询，不应产出 RULE-SET 规则");
   }
 
   // --- 场景 B：仅 proxy-providers（无内联节点） ---
