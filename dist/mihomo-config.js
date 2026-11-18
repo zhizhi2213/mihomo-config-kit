@@ -1,14 +1,15 @@
 // ============================================================
-// mihomo-config-kit v1.3.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.4.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
-// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → NTP 直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
+// 分组顺序：策略选择 → 自动/手动 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
+// 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
+// v1.4.0：移除 anti-AD（classical 格式不兼容）；provider 模式补齐地区组 + health-check；测速统一 300s/tolerance 30
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.3.0",
+  "version": "1.4.0",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -45,6 +46,13 @@ var MIHOMO_KIT = {
     "*.local",
     "+.in-addr.arpa",
     "localhost.ptlogin2.qq.com",
+    "+.ntp.org",
+    "time.windows.com",
+    "time.apple.com",
+    "+.stun.*",
+    "+.stun.*.*",
+    "+.stun.*.*.*",
+    "+.stun.*.*.*.*",
     "+.srv.nintendo.net",
     "+.stun.playstation.net",
     "+.msftconnecttest.com",
@@ -55,13 +63,27 @@ var MIHOMO_KIT = {
     "*.battlenet.com",
     "*.blzstatic.cn",
     "+.market.xiaomi.com",
+    "geosite:private",
     "geosite:cn",
     "rule-set:fakeip-filter"
   ],
   "communityFakeIpFilterKey": "fakeip-filter",
   "communityFakeIpFilterUrl": "https://cdn.jsdmirror.com/gh/wwqgtxx/clash-rules@release/fakeip-filter.mrs",
   "probeUrl": "https://www.gstatic.com/generate_204",
-  "infoNodeRe": "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|已用)",
+  "infoNodeRe": "(剩余|官网|套餐|流量|到期|过期|更新|刷新|订阅|群|网址|客服|欢迎|加入|Expire|Traffic|Reset|重置|距离下次|已用|(^|[^A-Za-z0-9])(\\d+(\\.\\d+)?\\s*(GB|TB)|\\d+\\s*Days?)([^A-Za-z0-9]|$))",
+  "geoxUrl": {
+    "mmdb": "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@release/country.mmdb",
+    "geoip": "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@release/geoip.dat",
+    "geosite": "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  },
+  "snifferSkipDomains": [
+    "Mijia Cloud",
+    "+.apple.com",
+    "+.openai.com",
+    "+.oaistatic.com",
+    "+.oaiusercontent.com",
+    "+.chatgpt.com"
+  ],
   "regions": [
     {
       "name": "🇭🇰 香港节点",
@@ -120,15 +142,6 @@ var MIHOMO_KIT = {
     }
   ],
   "appGroups": [
-    {
-      "name": "🛑 广告拦截",
-      "style": "fixed",
-      "proxies": [
-        "REJECT",
-        "DIRECT",
-        "🚀 策略选择"
-      ]
-    },
     {
       "name": "🇨🇳 国内 AI",
       "style": "direct"
@@ -356,7 +369,6 @@ var MIHOMO_KIT = {
     "strategy": "🚀 策略选择",
     "auto": "♻️ 自动选择",
     "manual": "👐 手动选择",
-    "adblock": "🛑 广告拦截",
     "ai": "🌍 国外 AI",
     "aiCn": "🇨🇳 国内 AI",
     "telegram": "📲 Telegram",
@@ -381,8 +393,7 @@ var MIHOMO_KIT = {
     "hk": "🇭🇰 香港节点",
     "tw": "🇨🇳 台湾节点"
   },
-  "ruleBase": "https://yfamilys.com/rule",
-  "antiAdUrl": "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml"
+  "ruleBase": "https://yfamilys.com/rule"
 };
 
 function mihomoKitMatch(names, include, exclude) {
@@ -420,6 +431,19 @@ function main(config) {
     if (!cfg.mode) cfg.mode = "rule";
     cfg["unified-delay"] = true;
     cfg["tcp-concurrent"] = true;
+    cfg["find-process-mode"] = "off";
+    cfg["keep-alive-idle"] = 180;
+    cfg["keep-alive-interval"] = 30;
+    cfg["geodata-mode"] = false;
+    cfg["geodata-loader"] = "memconservative";
+    var geox = cfg["geox-url"] && typeof cfg["geox-url"] === "object" && !Array.isArray(cfg["geox-url"]) ? cfg["geox-url"] : {};
+    var mergedGeox = {};
+    var k;
+    for (k in D.geoxUrl) mergedGeox[k] = D.geoxUrl[k];
+    for (k in geox) mergedGeox[k] = geox[k];
+    cfg["geox-url"] = mergedGeox;
+    delete cfg["global-client-fingerprint"];
+    delete cfg["bind-address"];
     if (!cfg["log-level"]) cfg["log-level"] = "warning";
     if (!cfg.profile || typeof cfg.profile !== "object") cfg.profile = {};
     cfg.profile["store-selected"] = true;
@@ -428,10 +452,12 @@ function main(config) {
     // ---------- 2. DNS（fake-ip + 本地 hosts） ----------
     var dns = cfg.dns && typeof cfg.dns === "object" && !Array.isArray(cfg.dns) ? cfg.dns : {};
     dns.enable = true;
-    if (!dns.listen) dns.listen = "0.0.0.0:1053";
+    if (!dns.listen) dns.listen = "127.0.0.1:1053";
     dns.ipv6 = false;
+    dns["prefer-h3"] = false;
     dns["enhanced-mode"] = "fake-ip";
     dns["fake-ip-range"] = "198.18.0.1/16";
+    dns["fake-ip-filter-mode"] = "blacklist";
     dns["cache-algorithm"] = "arc";
     dns["use-system-hosts"] = true;
     dns["default-nameserver"] = ["223.5.5.5", "119.29.29.29"];
@@ -466,6 +492,9 @@ function main(config) {
     var skipDst = Array.isArray(sniffer["skip-dst-address"]) ? sniffer["skip-dst-address"].slice() : [];
     skipDst = mihomoKitUnique(skipDst.concat(D.privateCidrs));
     sniffer["skip-dst-address"] = skipDst;
+    var skipDom = Array.isArray(sniffer["skip-domain"]) ? sniffer["skip-domain"].slice() : [];
+    skipDom = mihomoKitUnique(skipDom.concat(D.snifferSkipDomains));
+    sniffer["skip-domain"] = skipDom;
     cfg.sniffer = sniffer;
 
     // ---------- 4. 节点来源：内联 proxies 优先，否则退回 proxy-providers ----------
@@ -479,28 +508,73 @@ function main(config) {
     var providers = Object.keys(cfg["proxy-providers"] || {});
     var useProvider = names.length === 0 && providers.length > 0;
 
+    // provider 模式：组的 url 测速只覆盖 proxies 成员，provider 节点必须靠自身 health-check
+    // 产出延迟数据，否则地区 url-test 组拿不到延迟、永远停在第一个节点。订阅已有值保留，enable 强制开。
+    if (useProvider) {
+      var providerMap = cfg["proxy-providers"];
+      for (var pKey in providerMap) {
+        var provider = providerMap[pKey];
+        if (!provider || typeof provider !== "object" || Array.isArray(provider)) continue;
+        var oldHc = provider["health-check"] && typeof provider["health-check"] === "object"
+          && !Array.isArray(provider["health-check"]) ? provider["health-check"] : {};
+        var hc = {
+          enable: true,
+          url: D.probeUrl,
+          interval: 300,
+          timeout: 5000,
+          lazy: true,
+          "expected-status": 204
+        };
+        for (var hKey in oldHc) hc[hKey] = oldHc[hKey];
+        hc.enable = true;
+        provider["health-check"] = hc;
+      }
+    }
+
     // ---------- 5. 区域节点组 ----------
     var regionGroups = [];
     var regionNames = [];
-    if (!useProvider) {
+    var PROBE = {
+      type: "url-test",
+      url: D.probeUrl,
+      interval: 300,
+      tolerance: 30,
+      timeout: 5000,
+      lazy: true,
+      "max-failed-times": 5,
+      "expected-status": 204
+    };
+    function withProbe(extra) {
+      var g = {};
+      for (var baseKey in PROBE) g[baseKey] = PROBE[baseKey];
+      for (var extraKey in extra) g[extraKey] = extra[extraKey];
+      return g;
+    }
+
+    if (useProvider) {
+      // provider 订阅在脚本期看不到节点：用内核 include-all + Go 正则 filter 动态筛选，
+      // 全量建地区组，一个节点都没匹配上时由 empty-fallback 落 REJECT，而不是留空组。
+      D.regions.forEach(function (r) {
+        regionNames.push(r.name);
+        regionGroups.push(withProbe({
+          name: r.name,
+          "include-all": true,
+          "exclude-type": "direct|reject",
+          filter: "(?i)(" + r.include + ")",
+          "exclude-filter": "(?i)(" + D.infoNodeRe + (r.exclude ? "|" + r.exclude : "") + ")",
+          "empty-fallback": "REJECT"
+        }));
+      });
+    } else {
       D.regions.forEach(function (r) {
         var matched = mihomoKitMatch(names, r.include, r.exclude);
         if (!matched.length) return;
         regionNames.push(r.name);
-        regionGroups.push({
-          name: r.name,
-          type: "url-test",
-          url: D.probeUrl,
-          interval: 600,
-          tolerance: 50,
-          timeout: 5000,
-          lazy: true,
-          proxies: matched
-        });
+        regionGroups.push(withProbe({ name: r.name, proxies: matched }));
       });
     }
 
-    // ---------- 6. 代理组（面板顺序：策略 → 自动/手动 → 广告拦截 → 应用 → 区域） ----------
+    // ---------- 6. 代理组（面板顺序：策略 → 自动/手动 → 应用 → 区域） ----------
     var nodeNames = names.length ? names.slice() : ["DIRECT"];
     var strategyOptions = [D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
     var proxyOptions = [D.G.strategy, D.G.auto, D.G.manual].concat(regionNames, ["DIRECT"]);
@@ -512,9 +586,7 @@ function main(config) {
     );
 
     function urlTestGroup(extra) {
-      var base = { type: "url-test", url: D.probeUrl, interval: 600, tolerance: 50, timeout: 5000, lazy: true };
-      for (var k in extra) base[k] = extra[k];
-      return base;
+      return withProbe(extra);
     }
 
     var groups = [
@@ -533,17 +605,8 @@ function main(config) {
 
     cfg["proxy-groups"] = groups.concat(regionGroups);
 
-    // ---------- 7. 规则源：anti-AD 去广告 + yfamilys 分流 ----------
-    var rp = {
-      "anti-ad": {
-        type: "http",
-        behavior: "classical",
-        format: "yaml",
-        url: D.antiAdUrl,
-        path: "./providers/rules/anti-ad.yaml",
-        interval: 86400
-      }
-    };
+    // ---------- 7. 规则源：yfamilys 分流 + 社区 fake-ip 豁免清单 ----------
+    var rp = {};
     D.rulesets.forEach(function (rs) {
       rp[rs.key] = {
         type: "http",
@@ -565,15 +628,18 @@ function main(config) {
     };
     cfg["rule-providers"] = rp;
 
-    // ---------- 8. 规则：内网直连 → NTP 直连 → 白名单 → 去广告 → 分流 → 兜底 ----------
+    // ---------- 8. 规则：内网/private 直连 → NTP 直连 → 白名单 → 例外 → 分流 → 兜底 ----------
     var rules = [];
     D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+    rules.push("GEOSITE,private,DIRECT");
+    rules.push("GEOIP,private,DIRECT,no-resolve");
     // 系统对时优先于业务分流：很多节点丢弃/限制 UDP 123，时间偏差会连带让 DoH 的 TLS 证书校验失败
     rules.push("AND,((DST-PORT,123),(NETWORK,udp)),DIRECT");
     D.directRules.forEach(function (r) { rules.push(r); });
-    rules.push("RULE-SET,anti-ad," + D.G.adblock);
+    // 修复 Google Play 下载/更新一直「等待中」：services.googleapis.cn 解析到境内 IP，需早于国内分流走代理
+    rules.push("DOMAIN-SUFFIX,googleapis.cn," + D.G.strategy);
     D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
-    rules.push("GEOIP,CN," + D.G.direct);
+    rules.push("GEOIP,CN," + D.G.direct + ",no-resolve");
     // 域名兜底：GEOIP,CN 只靠 IP 判断，解析到境外 CDN 的国内站点会漏；
     // 与 DNS 侧 fake-ip-filter 的 geosite:cn 同源，按域名补判一次再捞回直连（Syzygy33 的 RULE-SET,cn-domain 同思路）
     rules.push("GEOSITE,cn," + D.G.direct);

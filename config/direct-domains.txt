@@ -8,9 +8,12 @@
 #        例：DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT
 #   3) # 开头为注释，行尾 # 后也为注释
 # 修改后执行 node scripts/build.js（或提交后等 CI 构建）即可更新 dist/mihomo-config.js。
+#
+# v1.4.0 起 anti-AD 已移除，此清单仍然必须保留：ai-global.rule 里含字节系域名，
+# 不置顶按住它们会被送进「🌍 国外 AI」代理组（国内 CDN 走代理会加载失败）。
 # ============================================================
 
-# --- 豆包 / 字节系：历史上被去广告规则集误判成广告并 REJECT ---
+# --- 豆包 / 字节系：防止被 ai-global.rule 判进「国外 AI」代理组 ---
 doubao.com
 doubaocdn.com
 
@@ -38,10 +41,10 @@ bytedance.com
 bytedance.net
 
 # ctobsnssdk.com 是与 snssdk.com 分开注册的独立域，字节埋点/上报用（如 mcs.ctobsnssdk.com），
-# 一旦被去广告规则命中会导致豆包等页面功能异常
+# 一旦走代理会导致豆包等页面功能异常
 ctobsnssdk.com
 
-# --- 钉钉：static.dingtalk.com 被按域名 REJECT（www/api/login 正常，仅静态资源域被拦），
+# --- 钉钉：static.dingtalk.com 走代理或被拦截时（www/api/login 正常，仅静态资源域异常），
 #     表现是页面框架能开、图片和 JS/CSS 全部加载失败 ---
 dingtalk.com
 dingtalkapps.com

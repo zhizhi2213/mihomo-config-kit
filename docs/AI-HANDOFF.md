@@ -34,8 +34,8 @@ node scripts/build.js            # 生成 + 自检（唯一必须掌握的命令
 成功输出形如：
 
 ```
-✓ 已生成 dist/mihomo-config.js（14.3 KB）
-  分组 28 个 / 规则 63 条 / 规则源 34 个
+✓ 已生成 dist/mihomo-config.js（18.4 KB）
+  分组 28 个 / 规则 68 条 / 规则源 35 个
   自检通过：DNS / Sniffer / 分组顺序 / 区域匹配 / 伪节点剔除 / 规则引用 / provider 模式
 ```
 
@@ -47,7 +47,7 @@ node scripts/build.js            # 生成 + 自检（唯一必须掌握的命令
 
 | 文件 | 职责 | 什么时候动它 |
 |---|---|---|
-| `config/direct-domains.txt` | 置顶直连白名单（数据文件，23 条） | 某个 App 的域名被规则源误判成广告/走了代理 |
+| `config/direct-domains.txt` | 置顶直连白名单（数据文件，23 条） | 某个 App 的域名被 `ai-global.rule` 判进了国外 AI 代理组 |
 | `scripts/build.js` 顶部数据区 | 区域正则、应用分组、规则源、DNS、探测地址 | 改分组结构、加区域、换规则源 |
 | `scripts/build.js` 中段 `RUNTIME` 模板 | 运行时逻辑（真正跑在客户端里的代码） | 改运行时行为（极少需要） |
 | `dist/mihomo-config.js` | **产物，不要手改**，由构建覆盖 | 只读，用于对比/排障 |
@@ -64,7 +64,7 @@ node scripts/build.js            # 生成 + 自检（唯一必须掌握的命令
 | `G` | 代理组名唯一数据源，改名前先改这里 |
 | `REGION_GROUPS` | 区域 url-test 组：`include` / `exclude` 是 JS 正则 |
 | `APP_GROUPS` | 应用分流组，`style` 决定可选项来源 |
-| `RULE_BASE` / `ANTI_AD_URL` | 规则源地址 |
+| `RULE_BASE` / `COMMUNITY_FAKEIP_FILTER_URL` | yfamilys 分流源地址 / 社区 fake-ip 清单地址（v1.4.0 起已无 `ANTI_AD_URL`） |
 | `RULESETS` | 规则源 → 目标组映射（顺序即规则优先级） |
 
 ---
@@ -146,9 +146,9 @@ cp "$HOME/Library/Application Support/com.follow.clash/"{GEOIP.metadb,GEOSITE.da
 | **代理组不得自引用** | `🚀 策略选择` 的选项列表里不能再出现自己，Clash 会报错或行为异常。自检已覆盖 |
 | **url-test 组不能含伪节点** | 订阅里的 `Traffic: 32.71 GB | 150 GB` 这类信息行被当成节点测速，必然失败刷屏。`INFO_NODE_RE` 负责剔除，自检会断言 |
 | **产物不得写时间戳** | 破坏可复现构建：同一源码每次产物不同 → CI 每轮都产生只改时间戳的 bot 提交 |
-| **区域组排在应用组之后** | 用户明确要求面板顺序：策略 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组。自检会断言 |
-| **规则源必须是 `behavior: classical` + `format: yaml`** | yfamilys 的 `.rule` 文件是 `payload:` 列表格式；mrs（二进制 succinct-trie）无法用文本方式校验，排障时极难定位 |
-| **不能靠 MITM 做去广告** | yfamilys 的 `AdBlock.stoverride` 依赖 MITM 重写，mihomo 不支持 MITM，本项目只做域名/IP 级 REJECT |
+| **区域组排在应用组之后** | 用户明确要求面板顺序：策略 → 自动/手动 → 应用分流 → 漏网之鱼 → 区域节点组（v1.4.0 起已无广告拦截组）。自检会断言 |
+| **yfamilys 分流源必须是 `behavior: classical` + `format: yaml`** | yfamilys 的 `.rule` 文件是 `payload:` 列表格式；mrs（二进制 succinct-trie）无法用文本方式校验，排障时极难定位。唯一例外是社区 fake-ip 清单（`behavior: domain` + `format: mrs`），它只供 DNS 查询、不产出 `RULE-SET` |
+| **本项目不含去广告规则集** | v1.4.0 起移除 anti-AD：其 payload 是 `+.域名` 的 domain 格式，用 `classical` 加载会逐条刷 `parse classical rule ... error`、实际大面积失效。要恢复请改接 `behavior: domain` 的源，别用旧写法 |
 | **`.github/workflows/` 需要 `workflow` scope** | OAuth token 默认没有，push 会被拒：`refusing to allow an OAuth App to create or update workflow`。解法：`gh auth refresh -s workflow` |
 | **绝不提交凭据** | 订阅 URL（含 token）、节点密码、机场域名一律不进仓库。仓库是公开的 |
 
@@ -162,17 +162,16 @@ cp "$HOME/Library/Application Support/com.follow.clash/"{GEOIP.metadb,GEOSITE.da
 2. 下载实际规则源做整域比对（不要 grep mrs 二进制，那是 succinct-trie 编码，grep 不到）：
 
 ```bash
-cd /tmp && curl -sSL -o anti-ad.yaml \
-  https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml
-grep -iE "[-.']你的域名'?$" anti-ad.yaml          # 整域/后缀条目
-grep -iE "你的域名" anti-ad.yaml | head            # 子域条目
+cd /tmp && curl -sSL -o ai-global.rule \
+  https://yfamilys.com/rule/ai-global.rule
+grep -iE "你的域名" ai-global.rule                # 先看最可能误判的国外 AI 源
 
-# yfamilys 规则按需下载
-curl -sSL -o ai.rule https://yfamilys.com/rule/ai.rule
-grep -iE "你的域名" ai.rule
+# 其它 yfamilys 规则按需下载（key 见 scripts/build.js 的 RULESETS）
+curl -sSL -o Proxy.rule https://yfamilys.com/rule/Proxy.rule
+grep -iE "你的域名" Proxy.rule
 ```
 
-3. 确认是「整域命中」才加白名单。子域命中（如 `+.opt.doubao.com`）通常只是遥测/广告，**不要把整个域直连**，否则会牺牲去广告效果。
+3. 确认是「整域命中」才加白名单。子域命中（如 `+.opt.doubao.com`）通常只是遥测/统计域，**不要把整个域直连**，否则会牺牲分流精度。
 
 **症状：日志刷 `use of closed network connection`**
 
@@ -192,30 +191,32 @@ grep -iE "你的域名" ai.rule
 
 ---
 
-## 7. 当前规则源的真实行为（2026-11 审计结论）
+## 7. 白名单为什么必须保留（v1.4.0 起）
+
+v1.4.0 移除 anti-AD 后，**置顶白名单 `config/direct-domains.txt` 仍然不能删**，理由从「防去广告误杀」换成了「防国外 AI 组误收」：
 
 | 域名 | 现状 | 结论 |
 |---|---|---|
-| `doubao.com` | yfamilys `ai.rule` 第 370 行 `DOMAIN-SUFFIX,doubao.com` → 🤖️ 人工智能（**代理组**） | 必须靠白名单置顶直连，否则豆包整体走代理 |
-| `ctobsnssdk.com` | anti-AD `+.ctobsnssdk.com` → REJECT | 必须靠白名单，否则字节埋点域被拦（`mcs.ctobsnssdk.com`） |
-| 白名单其余 21 条 | 两套规则源均无整域条目，最终走 `GEOIP,CN` → 直连 | 冗余但保留作为保险（规则源每日更新，今天不拦不代表明天不拦） |
+| `doubao.com` / `bytedance.com` / `zijieapi.com` / `bytednsdoc.com` 等字节系 | yfamilys `ai-global.rule` 含这些整域条目 → 🌍 国外 AI（代理组） | 必须靠白名单置顶按住直连，否则国内 CDN 走代理会加载失败 |
+| `ctobsnssdk.com` / 钉钉三域 | 埋点域、静态资源域走代理时页面功能异常 | 保持直连 |
 
-已知代价（用户已知情并选择接受）：白名单排在 anti-AD 之前，所以 `p3-ad-sign.byteimg.com`、`dm.bytedance.com`、`ad.zijieapi.com` 这类字节自家广告子域会被放行。想收紧就删对应白名单条目，不需要改代码。
+`ai-global.rule` 每日更新，今天没收录不代表明天没有，清单里其余条目作为保险保留。想收紧（只放行业务子域）就删对应白名单条目，不用改代码。
 
 ---
 
 ## 8. 规则优先级（改动前必须理解）
 
 ```
-1  IP-CIDR 内网四段 → DIRECT
-2  config/direct-domains.txt 白名单 → DIRECT / REJECT（逐条，首位即白名单首条）
-3  RULE-SET,anti-ad → 🛑 广告拦截
-4  RULESETS 33 组 → 各应用组（ai / Microsoft / Apple / … / ASN-CN）
-5  GEOIP,CN → 🌐 全球直连
-6  MATCH → 🐟 漏网之鱼
+1  IP-CIDR 内网四段 + GEOSITE,private + GEOIP,private,no-resolve → DIRECT
+2  AND,((DST-PORT,123),(NETWORK,udp)) → DIRECT（NTP，早于所有 RULE-SET）
+3  config/direct-domains.txt 白名单 → DIRECT / REJECT（逐条，置顶）
+4  DOMAIN-SUFFIX,googleapis.cn → 🚀 策略选择（Google Play 下载例外）
+5  RULESETS 34 组 → 各应用组（ai-cn / ai-global / Microsoft / Apple / … / ASN-CN）
+6  GEOIP,CN,no-resolve → 🌐 全球直连（按 IP）；GEOSITE,cn → 🌐 全球直连（按域名）
+7  MATCH → 🐟 漏网之鱼
 ```
 
-**先匹配先生效**：任何想「绕过去广告但仅限某域」的需求，都只能靠第 2 层（白名单）实现，代价是该域下所有广告也不再被拦。想精细化，就得改 `RUNTIME` 里规则的插入位置（例如把「必须在 anti-AD 之前」和「必须在 anti-AD 之后」拆成两段）。
+**先匹配先生效**：想让某个域名强制直连，唯一入口是第 3 层白名单（置顶，早于所有 `RULE-SET`）。想让某个域名强制走代理且不被国内兜底捞回，要插在 `GEOSITE,cn` 之前——`googleapis.cn` 就是这么做的。
 
 ---
 
@@ -234,4 +235,4 @@ grep -iE "你的域名" ai.rule
 
 - **重新应用覆写**：改完只能由用户在客户端里点一次，agent 无法代劳。
 - **`gh auth refresh -s workflow`**：一旦要改 `.github/workflows/`，token 需要有该 scope，需用户授权。
-- **判断「值不值得加白名单」**：涉及牺牲去广告效果的取舍，最后由用户决定。
+- **判断「值不值得加白名单」**：涉及「直连 vs 代理」的取舍，最后由用户决定。
