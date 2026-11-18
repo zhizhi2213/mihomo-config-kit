@@ -1,13 +1,13 @@
 // ============================================================
-// mihomo-config-kit v1.1.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.2.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → 漏网之鱼
+// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -53,7 +53,8 @@ var MIHOMO_KIT = {
     "*.battlenet.com.cn",
     "*.battlenet.com",
     "*.blzstatic.cn",
-    "+.market.xiaomi.com"
+    "+.market.xiaomi.com",
+    "geosite:cn"
   ],
   "probeUrl": "https://www.gstatic.com/generate_204",
   "infoNodeRe": "^(Traffic|traffic|流量|剩余|到期|过期|Expire|expire|套餐|官网|重置|距离下次|已用)",
@@ -551,6 +552,9 @@ function main(config) {
     rules.push("RULE-SET,anti-ad," + D.G.adblock);
     D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
     rules.push("GEOIP,CN," + D.G.direct);
+    // 域名兜底：GEOIP,CN 只靠 IP 判断，解析到境外 CDN 的国内站点会漏；
+    // 与 DNS 侧 fake-ip-filter 的 geosite:cn 同源，按域名补判一次再捞回直连（Syzygy33 的 RULE-SET,cn-domain 同思路）
+    rules.push("GEOSITE,cn," + D.G.direct);
     rules.push("MATCH," + D.G.final);
     cfg.rules = rules;
 

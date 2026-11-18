@@ -45,8 +45,11 @@
 2  直连白名单           config/direct-domains.txt（置顶，防止去广告规则误杀）
 3  去广告               RULE-SET,anti-ad → 🛑 广告拦截
 4  应用分流             34 组 yfamilys RULE-SET（国内 AI → 🇨🇳 国内 AI 直连；国外 AI → 🌍 国外 AI 代理）
-5  兜底                GEOIP,CN → 🌐 全球直连；MATCH → 🐟 漏网之鱼
+5  国内兜底            GEOIP,CN → 🌐 全球直连（按 IP）；GEOSITE,cn → 🌐 全球直连（按域名）
+6  兜底                MATCH → 🐟 漏网之鱼
 ```
+
+> **国内域名为何要 `geosite:cn`**：DNS 是 fake-ip 模式，域名默认拿到 `198.18.x.x` 假 IP，`GEOIP,CN` 按 IP 判断时永远匹配不到，未收录的国内站点会掉进 `MATCH` 走代理。v1.2.0 在 `fake-ip-filter` 加内置 `geosite:cn` 让国内域名拿真实 IP，并在规则层补一条 `GEOSITE,cn` 按域名兜底（捞回解析到境外 CDN 的国内站点）。两处同源、零新增规则源——与 Syzygy33 脚本的 `rule-set:cn-domain` 三层联动同思路（那边用 mrs 规则源，这里用内核内置 geosite）。删掉任一处都会让国内直连退化。
 
 > 原单一 `ai.rule`（国内+国外 AI 混合）已拆为 `ai-cn.rule`（→ 🇨🇳 国内 AI，直连）与 `ai-global.rule`（→ 🌍 国外 AI，代理）。注意 `ai-global.rule` 里也含 `bytednsdoc.com` / `zijieapi.com` / `bytedance.com` 等字节域名，会被送进「国外 AI」代理组；置顶直连白名单 `config/direct-domains.txt` 已包含这些域名，按住它们直连——**因此白名单不可删**。
 

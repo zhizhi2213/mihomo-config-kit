@@ -18,7 +18,7 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
 const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 
 // ---------- 基础参数 ----------
 const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
@@ -46,6 +46,10 @@ const FAKE_IP_FILTER = [
   "*.battlenet.com",
   "*.blzstatic.cn",
   "+.market.xiaomi.com",
+  // 关键项：国内域名必须拿真实 IP，否则下面的 GEOIP,CN 永远匹配不到 fake-ip 假地址，
+  // 未收录的国内站点会落 MATCH 走代理。Syzygy33 用 rule-set:cn-domain 同理（那边有 mrs 源，
+  // 这里用内核内置 geosite:cn，零新增规则源、口径一致）。
+  "geosite:cn",
 ];
 
 // ---------- 代理组名 ----------
@@ -393,6 +397,9 @@ function main(config) {
     rules.push("RULE-SET,anti-ad," + D.G.adblock);
     D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
     rules.push("GEOIP,CN," + D.G.direct);
+    // 域名兜底：GEOIP,CN 只靠 IP 判断，解析到境外 CDN 的国内站点会漏；
+    // 与 DNS 侧 fake-ip-filter 的 geosite:cn 同源，按域名补判一次再捞回直连（Syzygy33 的 RULE-SET,cn-domain 同思路）
+    rules.push("GEOSITE,cn," + D.G.direct);
     rules.push("MATCH," + D.G.final);
     cfg.rules = rules;
 
@@ -411,7 +418,7 @@ function generate() {
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → 漏网之鱼
+// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
@@ -458,6 +465,10 @@ function verify(code) {
   if (!rules.includes("RULE-SET,ai-global,🌍 国外 AI")) throw new Error("规则：国外 AI 分组未注入");
   if (rules.includes("RULE-SET,ai,🤖️ 人工智能")) throw new Error("规则：旧混合 AI 分组不应存在");
   if (!rules.includes("MATCH,🐟 漏网之鱼") || !rules.includes("GEOIP,CN,🌐 全球直连")) throw new Error("规则：兜底规则缺失");
+  if (!rules.includes("GEOSITE,cn,🌐 全球直连")) throw new Error("规则：国内域名兜底 GEOSITE,cn 缺失");
+  if (rules.indexOf("GEOSITE,cn,🌐 全球直连") > rules.indexOf("MATCH,🐟 漏网之鱼")) throw new Error("规则：GEOSITE,cn 必须在 MATCH 之前");
+  const fakeIp = inline.dns["fake-ip-filter"] || [];
+  if (!fakeIp.includes("geosite:cn")) throw new Error("DNS：fake-ip-filter 缺少 geosite:cn（GEOIP,CN 会失效）");
 
   const groups = inline["proxy-groups"] || [];
   const groupNames = new Set(groups.map((g) => g.name));
