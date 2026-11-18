@@ -1,13 +1,13 @@
 // ============================================================
-// mihomo-config-kit v1.0.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.1.0 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
-// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流 → GEOIP,CN → 漏网之鱼
+// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
+// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -125,7 +125,11 @@ var MIHOMO_KIT = {
       ]
     },
     {
-      "name": "🤖️ 人工智能",
+      "name": "🇨🇳 国内 AI",
+      "style": "direct"
+    },
+    {
+      "name": "🌍 国外 AI",
       "style": "proxy"
     },
     {
@@ -207,8 +211,12 @@ var MIHOMO_KIT = {
   ],
   "rulesets": [
     {
-      "key": "ai",
-      "target": "🤖️ 人工智能"
+      "key": "ai-cn",
+      "target": "🇨🇳 国内 AI"
+    },
+    {
+      "key": "ai-global",
+      "target": "🌍 国外 AI"
     },
     {
       "key": "Microsoft",
@@ -344,7 +352,8 @@ var MIHOMO_KIT = {
     "auto": "♻️ 自动选择",
     "manual": "👐 手动选择",
     "adblock": "🛑 广告拦截",
-    "ai": "🤖️ 人工智能",
+    "ai": "🌍 国外 AI",
+    "aiCn": "🇨🇳 国内 AI",
     "telegram": "📲 Telegram",
     "youtube": "📹 YouTube",
     "netflix": "🎥 Netflix",

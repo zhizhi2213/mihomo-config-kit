@@ -3,6 +3,7 @@
 一套**自持**的 Mihomo 覆写脚本：给 FlClash / Clash Party / Clash Meta 系客户端的订阅配置做二次加工，重建 DNS、代理组和分流规则。不依赖任何第三方配置项目，全部逻辑都在本仓库里。
 
 - 分流方案参考 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 的分组与规则组织方式
+- AI 分组拆分为 🇨🇳 国内 AI（豆包/通义/Kimi/DeepSeek 直连）与 🌍 国外 AI（ChatGPT/Claude/Gemini 代理）
 - 去广告使用 [anti-AD](https://anti-ad.net/) 规则集
 - 节点永远来自你自己的订阅，本仓库不含任何节点信息
 
@@ -14,8 +15,8 @@
 | --- | --- |
 | DNS | fake-ip（`198.18.0.1/16`）、DoH 主解析（阿里 / 腾讯）、境外 fallback（Cloudflare / Google）、`use-system-hosts: true`（支持 SwitchHosts / `/etc/hosts`） |
 | Sniffer | 识别 IP 直连中的域名，内网网段加入 `skip-dst-address`，避免本地 hosts 解析出的内网 IP 被还原 |
-| 代理组 | 策略选择 / 自动选择 / 手动选择 / 广告拦截 / 20 个应用分流组 / 区域节点组 |
-| 规则源 | anti-AD 去广告 + yfamilys 33 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload） |
+| 代理组 | 策略选择 / 自动选择 / 手动选择 / 广告拦截 / 21 个应用分流组（含国内/国外 AI）/ 区域节点组 |
+| 规则源 | anti-AD 去广告 + yfamilys 34 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload） |
 | 规则 | 见下方优先级 |
 
 ### 分组顺序
@@ -25,7 +26,8 @@
 2  ♻️ 自动选择          url-test（全部真实节点）
 3  👐 手动选择          select
 4  🛑 广告拦截          REJECT / DIRECT / 策略选择
-5  🤖️ 人工智能  📲 Telegram  📹 YouTube  🎥 Netflix  🎬 Disney+
+5  🇨🇳 国内 AI          DIRECT / 策略选择（豆包、通义、Kimi、DeepSeek 等直连）
+   🌍 国外 AI  📲 Telegram  📹 YouTube  🎥 Netflix  🎬 Disney+
    🎻 Spotify  📄 Twitter  👤 Facebook  📖 Reddit  🐦 Discord
    🪙 Paypal  🎮 游戏平台  🍿 国外媒体  Ⓜ️ 微软服务  🍎 苹果服务
    📽 哔哩哔哩  🍔 国内媒体  🍟 新浪微博  🌐 全球直连
@@ -42,9 +44,11 @@
 1  内网网段直连         IP-CIDR 127/8、10/8、172.16/12、192.168/16 → DIRECT
 2  直连白名单           config/direct-domains.txt（置顶，防止去广告规则误杀）
 3  去广告               RULE-SET,anti-ad → 🛑 广告拦截
-4  应用分流             33 组 yfamilys RULE-SET
+4  应用分流             34 组 yfamilys RULE-SET（国内 AI → 🇨🇳 国内 AI 直连；国外 AI → 🌍 国外 AI 代理）
 5  兜底                GEOIP,CN → 🌐 全球直连；MATCH → 🐟 漏网之鱼
 ```
+
+> 原单一 `ai.rule`（国内+国外 AI 混合）已拆为 `ai-cn.rule`（→ 🇨🇳 国内 AI，直连）与 `ai-global.rule`（→ 🌍 国外 AI，代理）。注意 `ai-global.rule` 里也含 `bytednsdoc.com` / `zijieapi.com` / `bytedance.com` 等字节域名，会被送进「国外 AI」代理组；置顶直连白名单 `config/direct-domains.txt` 已包含这些域名，按住它们直连——**因此白名单不可删**。
 
 > ⚠️ 健康检查统一走 `https://www.gstatic.com/generate_204`。**不要改回 `http://`**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
 

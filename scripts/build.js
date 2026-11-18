@@ -18,7 +18,7 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
 const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 // ---------- 基础参数 ----------
 const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
@@ -54,7 +54,8 @@ const G = {
   auto: "♻️ 自动选择",
   manual: "👐 手动选择",
   adblock: "🛑 广告拦截",
-  ai: "🤖️ 人工智能",
+  ai: "🌍 国外 AI",
+  aiCn: "🇨🇳 国内 AI",
   telegram: "📲 Telegram",
   youtube: "📹 YouTube",
   netflix: "🎥 Netflix",
@@ -100,6 +101,7 @@ const REGION_GROUPS = [
 // ---------- 应用分流组（style 决定可选项，运行时按实际存在的区域组动态生成） ----------
 const APP_GROUPS = [
   { name: G.adblock, style: "fixed", proxies: ["REJECT", "DIRECT", G.strategy] },
+  { name: G.aiCn, style: "direct" },
   { name: G.ai, style: "proxy" },
   { name: G.telegram, style: "proxy" },
   { name: G.youtube, style: "proxy" },
@@ -129,7 +131,8 @@ const ANTI_AD_URL =
   "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-clash.yaml";
 
 const RULESETS = [
-  ["ai", G.ai],
+  ["ai-cn", G.aiCn],
+  ["ai-global", G.ai],
   ["Microsoft", G.microsoft],
   ["Apple", G.apple],
   ["AppStore", G.apple],
@@ -407,8 +410,8 @@ function generate() {
 // mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
-// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流 → GEOIP,CN → 漏网之鱼
+// 分组顺序：策略选择 → 自动/手动 → 广告拦截 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
+// 规则顺序：内网直连 → 直连白名单 → anti-AD 去广告 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
@@ -451,6 +454,9 @@ function verify(code) {
   if (missing.length) throw new Error(`规则：直连白名单未注入 -> ${missing.slice(0, 3).join(" | ")}`);
   if (rules.indexOf(data.directRules[0]) !== PRIVATE_CIDRS.length) throw new Error("规则：白名单未紧跟内网规则置顶");
   if (!rules.includes("RULE-SET,anti-ad,🛑 广告拦截")) throw new Error("规则：anti-AD 未注入");
+  if (!rules.includes("RULE-SET,ai-cn,🇨🇳 国内 AI")) throw new Error("规则：国内 AI 分组未注入");
+  if (!rules.includes("RULE-SET,ai-global,🌍 国外 AI")) throw new Error("规则：国外 AI 分组未注入");
+  if (rules.includes("RULE-SET,ai,🤖️ 人工智能")) throw new Error("规则：旧混合 AI 分组不应存在");
   if (!rules.includes("MATCH,🐟 漏网之鱼") || !rules.includes("GEOIP,CN,🌐 全球直连")) throw new Error("规则：兜底规则缺失");
 
   const groups = inline["proxy-groups"] || [];
