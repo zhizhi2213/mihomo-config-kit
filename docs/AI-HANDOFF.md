@@ -50,8 +50,8 @@ node scripts/build.js            # 生成 + 自检（唯一必须掌握的命令
 | `config/direct-domains.txt` | 置顶直连白名单（数据文件，23 条） | 某个 App 的域名被 `ai-global.rule` 判进了国外 AI 代理组 |
 | `scripts/build.js` 顶部数据区 | 区域正则、应用分组、规则源、DNS、探测地址 | 改分组结构、加区域、换规则源 |
 | `scripts/build.js` 中段 `RUNTIME` 模板 | 运行时逻辑（真正跑在客户端里的代码） | 改运行时行为（极少需要） |
-| `dist/mihomo-config.js` | **产物，不要手改**，由构建覆盖 | 只读，用于对比/排障 |
-| `.github/workflows/build.yml` | CI：push 或每周一 04:00 重建并回提交 `dist/` | 改触发条件 |
+| `dist/mihomo-config.js` | **构建产物，不要手改**，由构建覆盖 | 只读，用于对比/排障 |
+| `.github/workflows/build.yml` | CI：push 或每周一 04:00 重建并回提交 `dist/mihomo-config.js` | 改触发条件 |
 
 `scripts/build.js` 里的关键常量（按名字搜，别按行号，行号会漂）：
 
