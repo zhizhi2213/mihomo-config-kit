@@ -1,156 +1,123 @@
 # mihomo-config-kit
 
-一套**自持**的 Mihomo 覆写脚本：给 FlClash / Clash Party / Clash Meta 系客户端的订阅配置做二次加工，重建 DNS、代理组和分流规则。不依赖任何第三方配置项目，全部逻辑都在本仓库里。
+一套**自持**的 Mihomo 覆写脚本生成器，适用于 FlClash / Clash Party / Clash Meta 系客户端。客户端加载构建产物 `dist/mihomo-config.js` 后，会在你的订阅配置基础上自动重建 **DNS（fake-ip）**、**Sniffer**、**代理组**、**规则源**与**分流规则**，不依赖任何第三方配置项目。
 
-- 分流方案参考 [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 的分组与规则组织方式
-- AI 分组拆分为 🇨🇳 国内 AI（豆包/通义/Kimi/DeepSeek 直连）与 🌍 国外 AI（ChatGPT/Claude/Gemini 代理）
-- 不含去广告规则集（v1.4.0 起移除 anti-AD，原因见下）
-- 节点永远来自你自己的订阅，本仓库不含任何节点信息
+- **AI 独立分流**：拆分为 `🇨🇳 国内 AI`（直连）与 `🌍 国外 AI`（代理），并保留置顶白名单按住字节/豆包国内 CDN
+- **多订阅形态兼容**：同时支持内联 `proxies`、纯 `proxy-providers` 与混合订阅，自动剔除流量/到期等伪节点
+- **macOS / 内核兼容清理**：自动清理订阅中不兼容或已废弃字段（`clash-for-android`、`profile.tracing`、`global-client-fingerprint`、`bind-address` 与非 `utun` 开头的 `tun.device`）
+- **不含节点信息**：节点永远来自你自己的订阅，本仓库仅包含规则与构建脚本
 
-## 它做了什么
-
-导入订阅后，脚本会在客户端应用配置前重写以下部分：
-
-| 模块 | 内容 |
-| --- | --- |
-| DNS | fake-ip（`198.18.0.1/16`）、DoH 主解析（阿里 / 腾讯）、境外 fallback（Cloudflare / Google，带 `#RULES`）、`use-system-hosts: true`、`cache-algorithm: arc`；fake-ip 例外含内置 `geosite:cn` 与社区 `rule-set:fakeip-filter` |
-| Sniffer | 识别 IP 直连中的域名，内网网段加入 `skip-dst-address`，避免本地 hosts 解析出的内网 IP 被还原 |
-| 代理组 | 策略选择 / 自动选择 / 手动选择 / 20 个应用分流组（含国内/国外 AI）/ 漏网之鱼 / 区域节点组 |
-| 规则源 | yfamilys 34 组分流规则（`.rule` 为 mihomo 兼容的 yaml payload）+ 1 份社区 fake-ip 豁免清单（`.mrs`，只供 DNS 查询，不生成分流规则） |
-| 规则 | 见下方优先级 |
-
-### 分组顺序
-
-```
-1  🚀 策略选择          select
-2  ♻️ 自动选择          url-test（全部真实节点）
-3  👐 手动选择          select
-4  🇨🇳 国内 AI          DIRECT / 策略选择（豆包、通义、Kimi、DeepSeek 等直连）
-   🌍 国外 AI  📲 Telegram  📹 YouTube  🎥 Netflix  🎬 Disney+
-   🎻 Spotify  📄 Twitter  👤 Facebook  📖 Reddit  🐦 Discord
-   🪙 Paypal  🎮 游戏平台  🍿 国外媒体  Ⓜ️ 微软服务  🍎 苹果服务
-   📽 哔哩哔哩  🍔 国内媒体  🍟 新浪微博  🌐 全球直连
-5  🐟 漏网之鱼
-6  区域节点组：🇭🇰 港 / 🇨🇳 台 / 🇯🇵 日 / 🇸🇬 新 / 🇰🇷 韩 / 🇺🇸 美
-             / 🇬🇧 英 / 🇩🇪 德 / 🇷🇺 俄 / 🇨🇦 加 / 🇮🇳 印
-```
-
-区域组按**节点名正则**动态匹配。内联节点订阅里没有对应节点时该组自动不创建；**proxy-providers 订阅**在覆写脚本期看不到节点，改用内核 `include-all: true` + `filter`/`exclude-filter`（Go 正则）动态筛选，全量创建地区组并用 `empty-fallback: REJECT` 兜底空组，同时给每个 provider 注入 `health-check`（否则地区测速组拿不到延迟、永远停在首个节点）。订阅附带的 `Traffic: xx GB` 这类流量信息行会被识别为伪节点并剔除，不参与测速。
-
-### 规则优先级
-
-```
-1  内网/私网直连        IP-CIDR 4 段 + GEOSITE,private + GEOIP,private,no-resolve → DIRECT
-2  系统对时直连         AND,((DST-PORT,123),(NETWORK,udp)) → DIRECT（早于所有 RULE-SET）
-3  直连白名单           config/direct-domains.txt（置顶，按住 ai-global 里的字节系域名）
-4  例外                 DOMAIN-SUFFIX,googleapis.cn → 🚀 策略选择（修 Google Play 下载卡「等待中」）
-5  应用分流             34 组 yfamilys RULE-SET（国内 AI → 🇨🇳 国内 AI 直连；国外 AI → 🌍 国外 AI 代理）
-6  国内兜底            GEOIP,CN,no-resolve → 🌐 全球直连（按 IP）；GEOSITE,cn → 🌐 全球直连（按域名）
-7  兜底                MATCH → 🐟 漏网之鱼
-```
-
-> **国内域名为何要 `geosite:cn`**：DNS 是 fake-ip 模式，域名默认拿到 `198.18.x.x` 假 IP，`GEOIP,CN` 按 IP 判断时永远匹配不到，未收录的国内站点会掉进 `MATCH` 走代理。v1.2.0 在 `fake-ip-filter` 加内置 `geosite:cn` 让国内域名拿真实 IP，并在规则层补一条 `GEOSITE,cn` 按域名兜底（捞回解析到境外 CDN 的国内站点）。两处同源、零新增规则源——与 Syzygy33 脚本的 `rule-set:cn-domain` 三层联动同思路（那边用 mrs 规则源，这里用内核内置 geosite）。删掉任一处都会让国内直连退化。
-
-> **v1.3.0 的 DNS / 对时优化**：① `cache-algorithm: arc`，比默认 LRU 命中率更高、内存更省；② 境外 fallback 的三个 DoH 全部加 `#RULES`，让 DoH 请求本身按分流规则出站——`1.1.1.1` / `8.8.8.8` / `dns.google` 在国内直连基本不可达，不加后缀 fallback 形同虚设；③ `AND,((DST-PORT,123),(NETWORK,udp)),DIRECT` 排在所有 `RULE-SET` 之前，很多节点丢弃或限制 UDP 123，时钟漂移会连带导致 DoH 的 TLS 证书校验失败。三项都是零面板变化。
-
-> **社区 fake-ip 豁免清单**：`dns.fake-ip-filter` 除手工白名单与内置 `geosite:cn` 外，还引用 `rule-set:fakeip-filter`（[wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`），补齐官方 geosite 未收录、但必须拿真实 IP 的域名（NTP / 局域网发现 / 游戏联机等）。它只作为 `rule-provider` 供 DNS 查询，**不生成任何 `RULE-SET` 规则**。`.mrs` 需要较新的 mihomo 内核（已在 1.19.33 实测加载成功）；清单下载失败时该条自动忽略，手工项与 `geosite:cn` 仍生效。
-
-> **v1.4.0 移除 anti-AD**：`anti-ad-clash.yaml` 的 payload 是 `+.域名` 的 domain 格式，用 `behavior: classical` + `format: yaml` 加载时内核会逐条刷 `parse classical rule ... error: missing subsequent parameters`，去广告实际大面积失效，还逼着用置顶白名单把被误杀的字节/豆包域名救回来。移除后规则源 36→35、规则 69→68、面板少一个 🛑 广告拦截组。**`config/direct-domains.txt` 仍需保留**（见下一条）。如仍想去广告，建议改用 `behavior: domain` 的规则源单独接，别恢复旧写法。
-
-> **v1.4.0 的测速与 provider 增强**：所有 `url-test` 组统一 `interval: 300` / `tolerance: 30` / `max-failed-times: 5` / `expected-status: 204`（配合 `generate_204`），失效节点更快被剔除；provider 模式补齐地区组、`health-check` 与空组兜底，详见「分组顺序」。已用内联 90 节点与 provider-only 两份真实配置分别跑过 `mihomo -t`，并短启动确认 `filter` 正则可编译。
-
-> **v1.4.1 内部清理（分流行为与 v1.4.0 完全一致）**：移除 `skip-domain` 里的 `"Mijia Cloud"`——它不是合法域名，只在 SNI 恰好等于该字符串时才会精确命中（米家设备场景），常规域名匹配用不到；若米家设备经代理出现断连，单独加回这一条即可。另外清掉产物 `MIHOMO_KIT.G` 里 19 个运行时不读的死键、`urlTestGroup` 空壳包装，以及 `APP_GROUPS` 中已无组使用的 `fixed` 兜底分支。自检新增 G 键一致性、style 白名单、skip-domain 域名合法性三条断言防回流。
-
-> 原单一 `ai.rule`（国内+国外 AI 混合）已拆为 `ai-cn.rule`（→ 🇨🇳 国内 AI，直连）与 `ai-global.rule`（→ 🌍 国外 AI，代理）。注意 `ai-global.rule` 里也含 `bytednsdoc.com` / `zijieapi.com` / `bytedance.com` 等字节域名，会被送进「国外 AI」代理组；置顶直连白名单 `config/direct-domains.txt` 已包含这些域名，按住它们直连——**因此白名单不可删**。
-
-> ⚠️ 健康检查统一走 `https://www.gstatic.com/generate_204`。**不要改回 `http://`**：部分机场中继会直接断连 80 端口，日志里会刷 `failed to get the second response ... use of closed network connection` 的假失败。
+---
 
 ## 一键导入
 
-导入地址（客户端里选择「覆写 / 脚本」）：
+在客户端「覆写 / Override → 脚本」中填入以下任一地址并启用：
 
-```text
-https://raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config.js
-```
+- **GitHub Raw**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config.js
+  ```
+- **CDN 加速（国内直连可用）**：
+  ```text
+  https://fastly.jsdelivr.net/gh/zhizhi2213/mihomo-config-kit@main/dist/mihomo-config.js
+  ```
 
-CDN 加速（国内直连可用）：
+### FlClash 使用提示
 
-```text
-https://fastly.jsdelivr.net/gh/zhizhi2213/mihomo-config-kit@main/dist/mihomo-config.js
-```
+1. 添加订阅后，进入 **覆写** 填入上述脚本地址并启用。
+2. **关闭 App 自带的「DNS 覆写」**，避免客户端默认设置覆盖脚本内的 DNS 配置。
+3. 每次更新脚本后需**重新应用一次配置**才会生效；若分组名称有变动，之前的手动节点选择会重置。
 
-> ⚠️ 本仓库是公开仓库，**只放规则与构建脚本**。不要把订阅链接、节点密码、机场域名提交进来。
+---
 
-FlClash 使用注意：
+## 核心模块说明
 
-1. 添加订阅 → 覆写 → 填入上面的地址并启用
-2. **关闭 App 自带的「DNS 覆写」**，否则会用 App 的设置覆盖脚本里的 DNS
-3. 重新应用一次配置才会生效；分组改名后手动选择状态会重置
-
-## 维护
-
-### 直连白名单
-
-改 [`config/direct-domains.txt`](./config/direct-domains.txt)，无需动代码，支持三种写法：
-
-```text
-doubao.com                                   # 简写，自动补成 DOMAIN-SUFFIX,doubao.com,DIRECT
-DOMAIN-KEYWORD,p3-pack.byteimg.com,REJECT    # 完整规则行，原样使用
-# 井号开头为注释
-```
-
-### 区域正则 / 应用分组 / 规则源
-
-改 [`scripts/build.js`](./scripts/build.js) 顶部数据区：
-
-| 常量 | 作用 |
+| 模块 | 配置与行为 |
 | --- | --- |
-| `REGION_GROUPS` | 区域组名称 + 匹配正则（`include` / `exclude`），数组顺序即面板顺序 |
-| `APP_GROUPS` | 应用分流组，`style` 决定可选项：`proxy` / `direct` / `bilibili` / `final` |
-| `RULESETS` | 分流规则文件 → 代理组映射，数组顺序即 `RULE-SET` 顺序 |
-| `PROBE_URL` | 健康检查地址（必须 HTTPS） |
-| `FAKE_IP_FILTER` | fake-ip 例外域名 |
-| `INFO_NODE_RE` | 伪节点过滤正则（内联模式用；provider 模式同时作为 `exclude-filter` 的一部分） |
-| `COMMUNITY_FAKEIP_FILTER_KEY` / `_URL` | 社区 fake-ip 豁免清单的 provider 名与下载地址 |
-| `GEOX_URL` / `SNIFFER_SKIP_DOMAINS` | Geo 数据镜像地址 / Sniffer 跳过嗅探的域名 |
+| **基础兼容** | 开启 `unified-delay`、`tcp-concurrent`；关闭 `find-process-mode` 与 `geodata-mode`（`memconservative`）；配置 `geox-url` 国内镜像；清理 `clash-for-android`、`profile.tracing`、`global-client-fingerprint`、`bind-address` 及非 `utun` 的 `tun.device` |
+| **DNS** | `fake-ip` 模式（`198.18.0.1/16`）、`cache-algorithm: arc`、`use-system-hosts: true`；国内 DoH 主解析（阿里 / DNSPod）；境外 fallback（Cloudflare / Google）均带 `#RULES` 走分流；`fake-ip-filter` 包含内置 `geosite:cn`、`geosite:private` 与社区 `rule-set:fakeip-filter` |
+| **Sniffer** | 启用 HTTP / TLS / QUIC 域名嗅探；内网 CIDR 加入 `skip-dst-address`；Apple 与 OpenAI 系列域名加入 `skip-domain` |
+| **代理组** | 策略选择 / 自动选择 / 手动选择 / 20 个应用分流组 / 漏网之鱼 / 11 个区域节点 `url-test` 组；统一使用 `https://www.gstatic.com/generate_204` 进行健康检查 |
+| **规则源** | [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 34 组分流规则（`classical` + `yaml`）+ [wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`（`domain` + `mrs`，仅用于 DNS，不生成分流规则） |
 
-### 构建
+---
+
+## 代理组与规则结构
+
+### 代理组顺序
+
+```text
+1  🚀 策略选择     select（自动选择 / 手动选择 / 区域组 / DIRECT）
+2  ♻️ 自动选择     url-test（全部真实节点，自动剔除伪节点）
+3  👐 手动选择     select（全部真实节点，自动剔除伪节点）
+4  应用分流组      🇨🇳 国内 AI  🌍 国外 AI  📲 Telegram  📹 YouTube  🎥 Netflix
+                  🎬 Disney+   🎻 Spotify  📄 Twitter   👤 Facebook 📖 Reddit
+                  🐦 Discord   🪙 Paypal   🎮 游戏平台  🍿 国外媒体 Ⓜ️ 微软服务
+                  🍎 苹果服务  📽 哔哩哔哩 🍔 国内媒体  🍟 新浪微博 🌐 全球直连
+5  🐟 漏网之鱼     select（策略选择 / DIRECT）
+6  区域节点组      🇭🇰 香港 / 🇨🇳 台湾 / 🇯🇵 日本 / 🇸🇬 新加坡 / 🇰🇷 韩国 / 🇺🇸 美
+                  🇬🇧 英国 / 🇩🇪 德国 / 🇷🇺 俄罗斯 / 🇨🇦 加拿大 / 🇮🇳 印度
+```
+
+- **内联订阅**：按正则动态匹配节点，无对应节点时自动省略该区域组。
+- **Provider / 混合订阅**：自动为 `proxy-providers` 开启 `health-check`，并使用 `include-all`、`filter` / `exclude-filter` 与 `empty-fallback: REJECT` 动态筛选节点；`♻️ 自动选择` 与 `👐 手动选择` 同样会剔除伪节点与 `direct|reject` 类型节点。
+
+### 规则优先级
+
+```text
+1  内网/私网直连   IP-CIDR 4 段（no-resolve）+ GEOSITE,private + GEOIP,private,no-resolve → DIRECT
+2  系统对时直连    AND,((DST-PORT,123),(NETWORK,udp)) → DIRECT（早于所有 RULE-SET，保障 DoH TLS 校验）
+3  直连白名单      config/direct-domains.txt（置顶，按住 ai-global 中的字节系与钉钉域名）
+4  代理例外        DOMAIN-SUFFIX,googleapis.cn → 🚀 策略选择（修复 Google Play 下载卡「等待中」）
+5  应用分流        34 组 yfamilys RULE-SET（含 AppleProxy 优先于 Apple / AppStore）
+6  国内兜底        GEOIP,CN,no-resolve → 🌐 全球直连；GEOSITE,cn → 🌐 全球直连
+7  最终兜底        MATCH → 🐟 漏网之鱼
+```
+
+> **为什么不使用 anti-AD 等去广告源？**
+> v1.4.0 起已移除 anti-AD（因其 payload 为 `+.域名` 的 domain 格式，用 `classical` 加载会逐条报错且大面积失效，还会误杀国内静态资源）。如确有去广告需求，建议单独接入 `behavior: domain` 的规则源。
+
+---
+
+## 本地维护与构建
+
+日常只需维护两处文件：
+
+1. **置顶直连白名单**（[`config/direct-domains.txt`](./config/direct-domains.txt)）：每行一个域名（自动补全为 `DOMAIN-SUFFIX,<域名>,DIRECT`）或完整规则行，`#` 为注释。
+2. **规则与分组配置**（[`scripts/build.js`](./scripts/build.js)）：修改顶部数据区（`REGION_GROUPS`、`APP_GROUPS`、`RULESETS`、`FAKE_IP_FILTER` 等）。
+
+修改完成后，在仓库根目录执行构建与沙箱自检（需 Node.js ≥ 18）：
 
 ```bash
 node scripts/build.js
 ```
 
-生成 `dist/mihomo-config.js`，并做一轮沙箱自检：DNS / Sniffer 是否设置（含 `arc`、`#RULES`、NTP 位置、社区清单引用与 provider 定义）、分组顺序、区域匹配、伪节点剔除、规则目标是否存在（会跳过 `no-resolve` 等修饰符）、组是否自引用、测速容错参数、`proxy-providers` 两种形态（内联节点 / 仅 provider）是否兼容，以及产物数据区无死数据（G 键与运行时引用一致）、style 枚举合法、`skip-domain` 不含非域名条目。
-
-想再做一层内核校验，可以拿真实订阅跑一遍再交给 mihomo：
+脚本会生成 [`dist/mihomo-config.js`](./dist/mihomo-config.js)，并自动校验产物一致性、DNS / Sniffer 配置、规则顺序、目标组存在性、防自引用、伪节点剔除及 `provider` 模式兼容性。如需进一步验证真实订阅，可用内核校验：
 
 ```bash
-mihomo -t -d <包含 GEOIP.metadb 的目录> -f config.yaml
+mihomo -t -d <包含 GEOIP.metadb 的目录> -f <生成的 yaml>
 ```
 
 ### 自动构建（GitHub Actions）
 
-[`.github/workflows/build.yml`](./.github/workflows/build.yml) 会在以下时机重建产物并回提交 `dist/`：
+[`.github/workflows/build.yml`](./.github/workflows/build.yml) 会在以下情况自动执行 `node scripts/build.js` 并回提交 `dist/mihomo-config.js`：
 
-- push 到 `main` 且改动涉及 `scripts/**`、`config/**` 或工作流自身
-- 每周一北京时间 04:00 定时重建（规则源有更新时保持产物新鲜）
-- 手动：Actions → Build Override Script → Run workflow
+- 推送到 `main` 且改动涉及 `scripts/**`、`config/**` 或工作流文件本身
+- 每周一北京时间 04:00 定时重建
+- 在 GitHub Actions 页面手动触发 `Run workflow`
 
-构建是可复现的（产物里不写时间戳），所以**源码没实质变化时不会产生空的 bot 提交**。
+产物头部不写入构建时间戳，源码无实质变化时不会产生空提交。
+
+---
 
 ## 目录结构
 
+```text
+config/direct-domains.txt       置顶直连白名单
+scripts/build.js                构建脚本（配置数据 + 运行时模板 + 沙箱自检）
+dist/mihomo-config.js           构建产物（客户端导入的覆写脚本，勿手改）
+.github/workflows/build.yml     CI 自动构建与回提交工作流
+docs/AI-HANDOFF.md              AI / 维护者交接指南（操作流程、硬约束与排障决策树）
 ```
-config/direct-domains.txt       直连白名单（置顶规则）
-scripts/build.js                构建脚本：数据 + 运行时模板 + 自检
-dist/mihomo-config.js           构建产物（客户端导入的覆写脚本）
-.github/workflows/build.yml     CI：改动即重建并回提交产物
-docs/AI-HANDOFF.md              交接指南：后续接手者（人或 AI）的操作流程、硬约束、排障树
-```
 
-> 想让 AI 继续接手维护这个项目？把 [`docs/AI-HANDOFF.md`](./docs/AI-HANDOFF.md) 交给它即可 —— 里面写了改哪个文件、怎么验证、哪些改法一定会出 bug。
-
-## 说明
-
-- 产物只包含规则与分组逻辑，不含节点、订阅地址、密码等敏感信息，可以公开分享
-- 客户端若自行生成含订阅信息的 `config.yaml`，那属于本地文件，不要提交到仓库
+> ⚠️ **安全提示**：本仓库为公开仓库，切勿将包含 token 的订阅链接、节点密码、机场域名或客户端生成的本地 `config.yaml` 提交进仓库。
