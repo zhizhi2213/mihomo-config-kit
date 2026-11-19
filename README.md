@@ -35,7 +35,7 @@
 | 模块 | 配置与行为 |
 | --- | --- |
 | **基础兼容** | 开启 `unified-delay`、`tcp-concurrent`；关闭 `find-process-mode` 与 `geodata-mode`（`memconservative`）；配置 `geox-url` 国内镜像；清理 `clash-for-android`、`profile.tracing`、`global-client-fingerprint`、`bind-address` 及非 `utun` 的 `tun.device` |
-| **DNS** | `fake-ip` 模式（`198.18.0.1/16`）、`cache-algorithm: arc`、`use-system-hosts: true`；国内 DoH 主解析（阿里 / DNSPod）；境外 fallback（Cloudflare / Google）均带 `#RULES` 走分流；`fake-ip-filter` 包含内置 `geosite:cn`、`geosite:private` 与社区 `rule-set:fakeip-filter` |
+| **DNS** | `fake-ip` 模式（`198.18.0.1/16`）、`cache-algorithm: arc`、`use-system-hosts: true`、`respect-rules: true`；主 `nameserver` 使用境外 DoH（Cloudflare / Google，跟随分流规则走代理）；`nameserver-policy`（`geosite:cn,private`）、`proxy-server-nameserver` 与 `direct-nameserver` 定向国内 DoH（阿里 / DNSPod），清理旧 `fallback` 彻底防止并发抢答导致的 DNS 泄漏；`fake-ip-filter` 包含内置 `geosite:cn`、`geosite:private` 与社区 `rule-set:fakeip-filter` |
 | **Sniffer** | 启用 HTTP / TLS / QUIC 域名嗅探；内网 CIDR 加入 `skip-dst-address`；Apple 与 OpenAI 系列域名加入 `skip-domain` |
 | **代理组** | 策略选择 / 自动选择 / 手动选择 / 20 个应用分流组 / 漏网之鱼 / 11 个区域节点 `url-test` 组；统一使用 `https://www.gstatic.com/generate_204` 进行健康检查 |
 | **规则源** | [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 34 组分流规则（`classical` + `yaml`）+ [wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`（`domain` + `mrs`，仅用于 DNS，不生成分流规则） |

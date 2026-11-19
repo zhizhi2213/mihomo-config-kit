@@ -331,7 +331,7 @@ function main(config) {
     cfg.profile["store-selected"] = true;
     if (cfg.profile["store-fake-ip"] === undefined) cfg.profile["store-fake-ip"] = true;
 
-    // ---------- 2. DNS（fake-ip + 本地 hosts） ----------
+    // ---------- 2. DNS（fake-ip + 本地 hosts + 防 DNS 泄漏分流） ----------
     var dns = cfg.dns && typeof cfg.dns === "object" && !Array.isArray(cfg.dns) ? cfg.dns : {};
     dns.enable = true;
     if (!dns.listen) dns.listen = "127.0.0.1:1053";
@@ -342,17 +342,26 @@ function main(config) {
     dns["fake-ip-filter-mode"] = "blacklist";
     dns["cache-algorithm"] = "arc";
     dns["use-system-hosts"] = true;
+    dns["respect-rules"] = true;
+    var cnDoH = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
     dns["default-nameserver"] = ["223.5.5.5", "119.29.29.29"];
-    dns.nameserver = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
-    dns["proxy-server-nameserver"] = ["https://223.5.5.5/dns-query", "https://doh.pub/dns-query"];
-    // #RULES：让境外 fallback 的 DoH 请求本身按分流规则出站，而不是裸直连
-    // （1.1.1.1 / 8.8.8.8 / dns.google 在国内直连基本不可达，不加后缀等于 fallback 形同虚设）
-    dns.fallback = [
-      "https://1.1.1.1/dns-query#RULES",
-      "https://8.8.8.8/dns-query#RULES",
-      "https://dns.google/dns-query#RULES"
+    dns["proxy-server-nameserver"] = cnDoH.slice();
+    dns["direct-nameserver"] = cnDoH.slice();
+    // 方案一（现代 Mihomo 防泄漏写法）：
+    // 主 nameserver 仅使用境外 DoH（配合 respect-rules 走代理出站），
+    // 国内与私网域名由 nameserver-policy 定向到阿里/腾讯 DoH，彻底废弃并发抢答的 fallback，避免向国内 DNS 泄漏未知/境外域名查询。
+    dns.nameserver = [
+      "https://1.1.1.1/dns-query",
+      "https://8.8.8.8/dns-query",
+      "https://dns.google/dns-query"
     ];
-    dns["fallback-filter"] = { geoip: true, "geoip-code": "CN", ipcidr: ["240.0.0.0/4"] };
+    var policy = dns["nameserver-policy"] && typeof dns["nameserver-policy"] === "object" && !Array.isArray(dns["nameserver-policy"])
+      ? dns["nameserver-policy"]
+      : {};
+    policy["geosite:cn,private"] = cnDoH.slice();
+    dns["nameserver-policy"] = policy;
+    delete dns.fallback;
+    delete dns["fallback-filter"];
     var fakeIp = Array.isArray(dns["fake-ip-filter"]) ? dns["fake-ip-filter"].slice() : [];
     fakeIp = mihomoKitUnique(fakeIp.concat(D.fakeIpFilter));
     dns["fake-ip-filter"] = fakeIp;
@@ -552,7 +561,7 @@ function generate() {
 // mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
-// DNS：arc 缓存、境外 fallback #RULES、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
+// DNS：arc 缓存、respect-rules + nameserver-policy 防泄漏、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
 // 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
@@ -589,6 +598,7 @@ function verify(code) {
     "clash-for-android": { "append-system-dns": false },
     profile: { tracing: true },
     tun: { enable: true, device: "Meta" },
+    dns: { fallback: ["https://1.1.1.1/dns-query"], "fallback-filter": { geoip: true } },
     proxies: [
       mk("🇭🇰 香港 IEPL 01"),
       mk("香港高级 IEPL 专线 2"),
@@ -619,9 +629,24 @@ function verify(code) {
   if (inline.dns["fake-ip-filter-mode"] !== "blacklist" || inline.dns["prefer-h3"] !== false) {
     throw new Error("DNS：fake-ip-filter-mode 或 prefer-h3 未正确设置");
   }
-  const fallbacks = inline.dns.fallback || [];
-  if (!fallbacks.length || fallbacks.some((u) => !String(u).endsWith("#RULES"))) {
-    throw new Error("DNS：境外 fallback 缺少 #RULES（国内直连不可达，fallback 会失效）");
+  if (inline.dns["respect-rules"] !== true) {
+    throw new Error("DNS：respect-rules 未开启（境外 nameserver 必须按分流规则走代理）");
+  }
+  if ("fallback" in inline.dns || "fallback-filter" in inline.dns) {
+    throw new Error("DNS：未清理旧 fallback / fallback-filter（会导致并发抢答引起 DNS 泄漏）");
+  }
+  const ns = inline.dns.nameserver || [];
+  if (!ns.length || ns.some((u) => /223\.5\.5\.5|119\.29\.29\.29|doh\.pub/i.test(String(u)))) {
+    throw new Error("DNS：主 nameserver 不应包含国内 DNS（否则未知/境外域名会向国内 DNS 泄漏）");
+  }
+  const policy = inline.dns["nameserver-policy"] || {};
+  const cnPolicy = policy["geosite:cn,private"];
+  if (!Array.isArray(cnPolicy) || !cnPolicy.includes("https://223.5.5.5/dns-query")) {
+    throw new Error("DNS：nameserver-policy 缺少 geosite:cn,private 国内 DoH 定向");
+  }
+  const directNs = inline.dns["direct-nameserver"] || [];
+  if (!directNs.includes("https://223.5.5.5/dns-query")) {
+    throw new Error("DNS：direct-nameserver 未配置国内 DoH");
   }
   if (!inline.sniffer || inline.sniffer.enable !== true) throw new Error("Sniffer：未开启");
   if (inline.sniffer["skip-dst-address"].indexOf("192.168.0.0/16") === -1) throw new Error("Sniffer：内网网段未豁免");
