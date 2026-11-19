@@ -1,7 +1,8 @@
 # mihomo-config-kit
 
-一套**自持**的 Mihomo 覆写脚本生成器，适用于 FlClash / Clash Party / Clash Meta 系客户端。客户端加载构建产物 `dist/mihomo-config.js` 后，会在你的订阅配置基础上自动重建 **DNS（fake-ip）**、**Sniffer**、**代理组**、**规则源**与**分流规则**，不依赖任何第三方配置项目。
+一套**自持**的 Mihomo 覆写脚本生成器，适用于 FlClash / Clash Party / Clash Meta 系客户端。客户端加载构建产物 `dist/mihomo-config.js`（标准版）或 `dist/mihomo-config-mrs.js`（全量 MRS 二进制版）后，会在你的订阅配置基础上自动重建 **DNS（fake-ip）**、**Sniffer**、**代理组**、**规则源**与**分流规则**，不依赖任何第三方配置项目。
 
+- **双版本并存**：同时提供 **Classical 标准版**（yfamilys 文本规则，易排查）与 **MRS 二进制版**（`MetaCubeX/meta-rules-dat` 官方 `.mrs` 规则，启动更快、内存更省、IP 规则全量 `no-resolve` 零 DNS 泄漏）
 - **AI 独立分流**：拆分为 `🇨🇳 国内 AI`（直连）与 `🌍 国外 AI`（代理），并保留置顶白名单按住字节/豆包国内 CDN
 - **多订阅形态兼容**：同时支持内联 `proxies`、纯 `proxy-providers` 与混合订阅，自动剔除流量/到期等伪节点
 - **macOS / 内核兼容清理**：自动清理订阅中不兼容或已废弃字段（`clash-for-android`、`profile.tracing`、`global-client-fingerprint`、`bind-address` 与非 `utun` 开头的 `tun.device`）
@@ -11,7 +12,22 @@
 
 ## 一键导入
 
-在客户端「覆写 / Override → 脚本」中填入以下任一地址并启用：
+在客户端「覆写 / Override → 脚本」中按需任选一个版本填入并启用：
+
+### 1. MRS 全量二进制版（推荐：`dist/mihomo-config-mrs.js`）
+> 采用 Mihomo 官方 `MetaCubeX/meta-rules-dat@meta` 全量 `.mrs` 二进制规则集（`domain` + `ipcidr`），走国内镜像下载，所有 IP 规则集自带 `no-resolve` 彻底杜绝规则匹配触发本地 DNS 解析。
+
+- **GitHub Raw**：
+  ```text
+  https://raw.githubusercontent.com/zhizhi2213/mihomo-config-kit/main/dist/mihomo-config-mrs.js
+  ```
+- **CDN 加速（国内直连可用）**：
+  ```text
+  https://fastly.jsdelivr.net/gh/zhizhi2213/mihomo-config-kit@main/dist/mihomo-config-mrs.js
+  ```
+
+### 2. Classical 标准版（`dist/mihomo-config.js`）
+> 采用 `yfamilys` 34 组 `classical` + `yaml` 文本分流规则集，本地缓存为明文 YAML，方便直接用文本工具检索排查。
 
 - **GitHub Raw**：
   ```text
@@ -38,7 +54,7 @@
 | **DNS** | `fake-ip` 模式（`198.18.0.1/16`）、`cache-algorithm: arc`、`use-system-hosts: true`、`respect-rules: true`；主 `nameserver` 使用境外 DoH（Cloudflare / Google，跟随分流规则走代理）；`nameserver-policy`（`geosite:cn,private`）、`proxy-server-nameserver` 与 `direct-nameserver` 定向国内 DoH（阿里 / DNSPod），清理旧 `fallback` 彻底防止并发抢答导致的 DNS 泄漏；`fake-ip-filter` 包含内置 `geosite:cn`、`geosite:private` 与社区 `rule-set:fakeip-filter` |
 | **Sniffer** | 启用 HTTP / TLS / QUIC 域名嗅探；内网 CIDR 加入 `skip-dst-address`；Apple 与 OpenAI 系列域名加入 `skip-domain` |
 | **代理组** | 策略选择 / 自动选择 / 手动选择 / 20 个应用分流组 / 漏网之鱼 / 11 个区域节点 `url-test` 组；统一使用 `https://www.gstatic.com/generate_204` 进行健康检查 |
-| **规则源** | [yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 34 组分流规则（`classical` + `yaml`）+ [wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`（`domain` + `mrs`，仅用于 DNS，不生成分流规则） |
+| **规则源** | **标准版**：[yfamilys](https://yfamilys.com/config/shadowrocket_basic.conf) 34 组（`classical` + `yaml`）；**MRS 版**：[MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat/tree/meta/geo) 39 组（`domain` / `ipcidr` + `mrs` 二进制）；两版均含 [wwqgtxx/clash-rules](https://github.com/wwqgtxx/clash-rules) 的 `fakeip-filter.mrs`（仅用于 DNS） |
 
 ---
 
@@ -69,7 +85,7 @@
 2  系统对时直连    AND,((DST-PORT,123),(NETWORK,udp)) → DIRECT（早于所有 RULE-SET，保障 DoH TLS 校验）
 3  直连白名单      config/direct-domains.txt（置顶，按住 ai-global 中的字节系与钉钉域名）
 4  代理例外        DOMAIN-SUFFIX,googleapis.cn → 🚀 策略选择（修复 Google Play 下载卡「等待中」）
-5  应用分流        34 组 yfamilys RULE-SET（含 AppleProxy 优先于 Apple / AppStore）
+5  应用分流        标准版 34 组 yfamilys RULE-SET / MRS 版 39 组 MetaCubeX .mrs RULE-SET（IP 规则均带 no-resolve）
 6  国内兜底        GEOIP,CN,no-resolve → 🌐 全球直连；GEOSITE,cn → 🌐 全球直连
 7  最终兜底        MATCH → 🐟 漏网之鱼
 ```
@@ -92,7 +108,7 @@
 node scripts/build.js
 ```
 
-脚本会生成 [`dist/mihomo-config.js`](./dist/mihomo-config.js)，并自动校验产物一致性、DNS / Sniffer 配置、规则顺序、目标组存在性、防自引用、伪节点剔除及 `provider` 模式兼容性。如需进一步验证真实订阅，可用内核校验：
+脚本会同时生成 [`dist/mihomo-config.js`](./dist/mihomo-config.js) 与 [`dist/mihomo-config-mrs.js`](./dist/mihomo-config-mrs.js)，并自动校验两份产物的一致性、DNS / Sniffer 配置、规则顺序、目标组存在性、防自引用、伪节点剔除、`provider` 模式兼容性及 MRS `no-resolve` 约束。如需进一步验证真实订阅，可用内核校验：
 
 ```bash
 mihomo -t -d <包含 GEOIP.metadb 的目录> -f <生成的 yaml>
@@ -115,7 +131,8 @@ mihomo -t -d <包含 GEOIP.metadb 的目录> -f <生成的 yaml>
 ```text
 config/direct-domains.txt       置顶直连白名单
 scripts/build.js                构建脚本（配置数据 + 运行时模板 + 沙箱自检）
-dist/mihomo-config.js           构建产物（客户端导入的覆写脚本，勿手改）
+dist/mihomo-config.js           构建产物：Classical 标准版（yfamilys yaml 规则源，勿手改）
+dist/mihomo-config-mrs.js       构建产物：MRS 全量二进制版（MetaCubeX .mrs 规则源，勿手改）
 .github/workflows/build.yml     CI 自动构建与回提交工作流
 docs/AI-HANDOFF.md              AI / 维护者交接指南（操作流程、硬约束与排障决策树）
 ```

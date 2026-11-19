@@ -39,6 +39,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes in dist/."
           else
-            git commit -m "chore: rebuild dist/mihomo-config.js"
+            git commit -m "chore: rebuild dist override scripts"
             git push
           fi

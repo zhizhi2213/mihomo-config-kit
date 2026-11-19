@@ -17,8 +17,9 @@ const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
 const OUTPUT = path.join(ROOT, "dist", "mihomo-config.js");
+const OUTPUT_MRS = path.join(ROOT, "dist", "mihomo-config-mrs.js");
 const DIRECT_DOMAINS_FILE = path.join(ROOT, "config", "direct-domains.txt");
-const VERSION = "1.4.1";
+const VERSION = "1.5.0";
 
 // ---------- 基础参数 ----------
 const PRIVATE_CIDRS = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
@@ -205,6 +206,59 @@ const RULESETS = [
   ["ASN-CN", G.direct],
 ];
 
+// ---------- MRS 版分流规则源（MetaCubeX/meta-rules-dat@meta，全量 binary .mrs） ----------
+// behavior 仅 domain / ipcidr；所有 ipcidr 规则集在运行时自动追加 ,no-resolve 防止触发本地 DNS 解析
+const MRS_RULE_BASE = "https://cdn.jsdmirror.com/gh/MetaCubeX/meta-rules-dat@meta/geo";
+
+const MRS_RULESETS = [
+  // AI 分流（官方原生区分国内外 AI）
+  { key: "ai-cn", behavior: "domain", path: "geosite/category-ai-cn.mrs", target: G.aiCn },
+  { key: "ai-global", behavior: "domain", path: "geosite/category-ai-!cn.mrs", target: G.ai },
+  // 微软 / 苹果（Apple Intelligence 优先走代理，其余走各自应用组）
+  { key: "microsoft", behavior: "domain", path: "geosite/microsoft.mrs", target: G.microsoft },
+  { key: "apple-proxy", behavior: "domain", path: "geosite/apple-intelligence.mrs", target: G.strategy },
+  { key: "apple", behavior: "domain", path: "geosite/apple.mrs", target: G.apple },
+  { key: "apple-cn", behavior: "domain", path: "geosite/apple-cn.mrs", target: G.apple },
+  // 社交与通讯
+  { key: "telegram", behavior: "domain", path: "geosite/telegram.mrs", target: G.telegram },
+  { key: "telegram-ip", behavior: "ipcidr", path: "geoip/telegram.mrs", target: G.telegram },
+  { key: "weibo", behavior: "domain", path: "geosite/sina.mrs", target: G.weibo },
+  { key: "tencent", behavior: "domain", path: "geosite/tencent.mrs", target: G.direct },
+  { key: "twitter", behavior: "domain", path: "geosite/twitter.mrs", target: G.twitter },
+  { key: "twitter-ip", behavior: "ipcidr", path: "geoip/twitter.mrs", target: G.twitter },
+  // 游戏平台（国服/下载 CDN 优先直连，其余走游戏平台组）
+  { key: "games-cn", behavior: "domain", path: "geosite/category-games-cn.mrs", target: G.direct },
+  { key: "steam-cn", behavior: "domain", path: "geosite/steam@cn.mrs", target: G.direct },
+  { key: "playstation", behavior: "domain", path: "geosite/playstation.mrs", target: G.game },
+  { key: "epic", behavior: "domain", path: "geosite/epicgames.mrs", target: G.game },
+  { key: "sony", behavior: "domain", path: "geosite/sony.mrs", target: G.game },
+  { key: "steam", behavior: "domain", path: "geosite/steam.mrs", target: G.game },
+  { key: "nintendo", behavior: "domain", path: "geosite/nintendo.mrs", target: G.game },
+  { key: "blizzard", behavior: "domain", path: "geosite/blizzard.mrs", target: G.game },
+  // 平台与社区
+  { key: "spotify", behavior: "domain", path: "geosite/spotify.mrs", target: G.spotify },
+  { key: "paypal", behavior: "domain", path: "geosite/paypal.mrs", target: G.paypal },
+  { key: "facebook", behavior: "domain", path: "geosite/facebook.mrs", target: G.facebook },
+  { key: "facebook-ip", behavior: "ipcidr", path: "geoip/facebook.mrs", target: G.facebook },
+  { key: "reddit", behavior: "domain", path: "geosite/reddit.mrs", target: G.reddit },
+  { key: "discord", behavior: "domain", path: "geosite/discord.mrs", target: G.discord },
+  // 流媒体
+  { key: "youtube", behavior: "domain", path: "geosite/youtube.mrs", target: G.youtube },
+  { key: "netflix", behavior: "domain", path: "geosite/netflix.mrs", target: G.netflix },
+  { key: "netflix-ip", behavior: "ipcidr", path: "geoip/netflix.mrs", target: G.netflix },
+  { key: "disney", behavior: "domain", path: "geosite/disney.mrs", target: G.disney },
+  { key: "bilibili", behavior: "domain", path: "geosite/bilibili.mrs", target: G.bilibili },
+  { key: "china-media", behavior: "domain", path: "geosite/category-entertainment-cn.mrs", target: G.cnMedia },
+  { key: "proxy-media", behavior: "domain", path: "geosite/category-entertainment.mrs", target: G.foreignMedia },
+  { key: "twitch", behavior: "domain", path: "geosite/twitch.mrs", target: G.strategy },
+  { key: "douyu", behavior: "domain", path: "geosite/douyu.mrs", target: G.direct },
+  // Google 与全球代理兜底
+  { key: "google", behavior: "domain", path: "geosite/google.mrs", target: G.strategy },
+  { key: "google-ip", behavior: "ipcidr", path: "geoip/google.mrs", target: G.strategy },
+  { key: "gfw", behavior: "domain", path: "geosite/gfw.mrs", target: G.strategy },
+  { key: "proxy", behavior: "domain", path: "geosite/geolocation-!cn.mrs", target: G.strategy },
+];
+
 function loadDirectRules() {
   if (!fs.existsSync(DIRECT_DOMAINS_FILE)) {
     throw new Error(`未找到直连域名清单: ${DIRECT_DOMAINS_FILE}`);
@@ -242,9 +296,11 @@ function loadDirectRules() {
  * 原因：时间戳会让同一份源码每次构建产生不同产物，CI 里就会不断出现
  * 「只改了时间戳」的 bot 提交。产物新鲜度看 git 提交记录即可。
  */
-function buildData() {
+function buildData(variant = "classical") {
+  const isMrs = variant === "mrs";
   return {
     version: VERSION,
+    variant,
     privateCidrs: PRIVATE_CIDRS,
     directRules: loadDirectRules(),
     fakeIpFilter: FAKE_IP_FILTER,
@@ -256,7 +312,9 @@ function buildData() {
     snifferSkipDomains: SNIFFER_SKIP_DOMAINS,
     regions: REGION_GROUPS,
     appGroups: APP_GROUPS,
-    rulesets: RULESETS.map(([key, target]) => ({ key, target })),
+    rulesets: isMrs
+      ? MRS_RULESETS.map(({ key, behavior, path: relPath, target }) => ({ key, behavior, path: relPath, target }))
+      : RULESETS.map(([key, target]) => ({ key, target })),
     // 运行时只读下面 7 个键；其余组名已在构建期固化进 appGroups / rulesets，
     // 打包进产物就是死数据，故只输出运行时真正引用的键（自检会核对两者一致）。
     G: {
@@ -268,7 +326,7 @@ function buildData() {
       hk: G.hk,
       tw: G.tw,
     },
-    ruleBase: RULE_BASE,
+    ruleBase: isMrs ? MRS_RULE_BASE : RULE_BASE,
   };
 }
 
@@ -506,17 +564,29 @@ function main(config) {
 
     cfg["proxy-groups"] = groups.concat(regionGroups);
 
-    // ---------- 7. 规则源：yfamilys 分流 + 社区 fake-ip 豁免清单 ----------
+    // ---------- 7. 规则源：业务分流（classical 或 mrs） + 社区 fake-ip 豁免清单 ----------
     var rp = {};
+    var isMrs = D.variant === "mrs";
     D.rulesets.forEach(function (rs) {
-      rp[rs.key] = {
-        type: "http",
-        behavior: "classical",
-        format: "yaml",
-        url: D.ruleBase + "/" + rs.key + ".rule",
-        path: "./providers/rules/" + rs.key + ".yaml",
-        interval: 86400
-      };
+      if (isMrs) {
+        rp[rs.key] = {
+          type: "http",
+          behavior: rs.behavior,
+          format: "mrs",
+          url: D.ruleBase + "/" + rs.path,
+          path: "./providers/rules/mrs-" + rs.key + ".mrs",
+          interval: 86400
+        };
+      } else {
+        rp[rs.key] = {
+          type: "http",
+          behavior: "classical",
+          format: "yaml",
+          url: D.ruleBase + "/" + rs.key + ".rule",
+          path: "./providers/rules/" + rs.key + ".yaml",
+          interval: 86400
+        };
+      }
     });
     // 仅供 dns.fake-ip-filter 的 "rule-set:<key>" 查询，不生成任何 RULE-SET 规则
     rp[D.communityFakeIpFilterKey] = {
@@ -539,7 +609,10 @@ function main(config) {
     D.directRules.forEach(function (r) { rules.push(r); });
     // 修复 Google Play 下载/更新一直「等待中」：services.googleapis.cn 解析到境内 IP，需早于国内分流走代理
     rules.push("DOMAIN-SUFFIX,googleapis.cn," + D.G.strategy);
-    D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
+    D.rulesets.forEach(function (rs) {
+      var suffix = rs.behavior === "ipcidr" ? ",no-resolve" : "";
+      rules.push("RULE-SET," + rs.key + "," + rs.target + suffix);
+    });
     rules.push("GEOIP,CN," + D.G.direct + ",no-resolve");
     // 域名兜底：GEOIP,CN 只靠 IP 判断，解析到境外 CDN 的国内站点会漏；
     // 与 DNS 侧 fake-ip-filter 的 geosite:cn 同源，按域名补判一次再捞回直连（Syzygy33 的 RULE-SET,cn-domain 同思路）
@@ -555,15 +628,20 @@ function main(config) {
 }
 `;
 
-function generate() {
-  const data = buildData();
+function generate(variant = "classical") {
+  const data = buildData(variant);
+  const isMrs = variant === "mrs";
+  const variantLabel = isMrs ? " [MRS 全量二进制规则版]" : " [Classical 标准版]";
+  const ruleSourceDesc = isMrs
+    ? "MetaCubeX/meta-rules-dat 全量 .mrs 分流（domain + ipcidr no-resolve）"
+    : "yfamilys 分流（国内AI直连/国外AI代理）";
   const header = `// ============================================================
-// mihomo-config-kit v${data.version} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v${data.version}${variantLabel} — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // DNS：arc 缓存、respect-rules + nameserver-policy 防泄漏、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
 // 分组顺序：策略选择 → 自动/手动 → 国内/国外 AI → 应用分流 → 漏网之鱼 → 区域节点组
-// 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → yfamilys 分流（国内AI直连/国外AI代理） → GEOIP,CN → GEOSITE,cn → 漏网之鱼
+// 规则顺序：内网/private 直连 → NTP 直连 → 直连白名单 → googleapis.cn 例外 → ${ruleSourceDesc} → GEOIP,CN → GEOSITE,cn → 漏网之鱼
 // ============================================================
 
 var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
@@ -573,12 +651,13 @@ var MIHOMO_KIT = ${JSON.stringify(data, null, 2)};
 
 const BUILTIN_TARGETS = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]);
 
-function verify(code) {
+function verify(code, variant = "classical") {
   const sandbox = { console: { log() {}, error() {}, warn() {} } };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
 
-  const data = buildData();
+  const data = buildData(variant);
+  const isMrs = variant === "mrs";
   const mk = (name) => ({ name, server: "x.example.com", port: 443, type: "ss", cipher: "aes-128-gcm", password: "x" });
 
   // 产物数据区不得有死数据：G 只保留运行时真正引用的键
@@ -730,8 +809,22 @@ function verify(code) {
   if (rp["anti-ad"]) throw new Error("规则源：不应再有 anti-AD 源");
   if (groupNames.has("🛑 广告拦截")) throw new Error("分组：不应再有广告拦截组");
   for (const rs of data.rulesets) {
-    if (!rp[rs.key] || !String(rp[rs.key].url).endsWith(`/${rs.key}.rule`)) {
-      throw new Error(`规则源：${rs.key} 缺失或 URL 错误`);
+    const p = rp[rs.key];
+    if (!p) throw new Error(`规则源：${rs.key} 缺失`);
+    if (isMrs) {
+      if (p.format !== "mrs" || !["domain", "ipcidr"].includes(p.behavior) || !String(p.url).endsWith(".mrs")) {
+        throw new Error(`规则源（MRS）：${rs.key} 格式或 behavior 错误 -> ${JSON.stringify(p)}`);
+      }
+      if (!String(p.path).startsWith("./providers/rules/mrs-")) {
+        throw new Error(`规则源（MRS）：${rs.key} 本地缓存路径未加 mrs- 前缀隔离`);
+      }
+      if (rs.behavior === "ipcidr" && !rules.includes(`RULE-SET,${rs.key},${rs.target},no-resolve`)) {
+        throw new Error(`规则（MRS）：ipcidr 规则集 ${rs.key} 必须带 ,no-resolve`);
+      }
+    } else {
+      if (p.format !== "yaml" || p.behavior !== "classical" || !String(p.url).endsWith(`/${rs.key}.rule`)) {
+        throw new Error(`规则源：${rs.key} 缺失或 URL 错误`);
+      }
     }
   }
   const communityProvider = rp[data.communityFakeIpFilterKey];
@@ -782,15 +875,21 @@ function verify(code) {
 }
 
 function main() {
-  const code = generate();
-  const stat = verify(code);
+  const targets = [
+    { variant: "classical", output: OUTPUT, label: "Classical 标准版 (yfamilys)" },
+    { variant: "mrs", output: OUTPUT_MRS, label: "MRS 二进制版 (MetaCubeX)" },
+  ];
 
   fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
-  fs.writeFileSync(OUTPUT, code, "utf8");
 
-  console.log(`✓ 已生成 ${path.relative(ROOT, OUTPUT)}（${(code.length / 1024).toFixed(1)} KB）`);
-  console.log(`  分组 ${stat.groups} 个 / 规则 ${stat.rules} 条 / 规则源 ${stat.providers} 个`);
-  console.log("  自检通过：DNS / Sniffer / 分组顺序 / 区域匹配 / 伪节点剔除 / 规则引用 / provider 模式");
+  for (const t of targets) {
+    const code = generate(t.variant);
+    const stat = verify(code, t.variant);
+    fs.writeFileSync(t.output, code, "utf8");
+    console.log(`✓ 已生成 ${path.relative(ROOT, t.output)} [${t.label}]（${(code.length / 1024).toFixed(1)} KB）`);
+    console.log(`  分组 ${stat.groups} 个 / 规则 ${stat.rules} 条 / 规则源 ${stat.providers} 个`);
+  }
+  console.log("  自检通过：DNS / Sniffer / 分组顺序 / 区域匹配 / 伪节点剔除 / 规则引用 / provider 模式 / MRS 校验");
 }
 
 main();

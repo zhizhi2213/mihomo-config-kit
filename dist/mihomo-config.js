@@ -1,5 +1,5 @@
 // ============================================================
-// mihomo-config-kit v1.4.1 — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
+// mihomo-config-kit v1.5.0 [Classical 标准版] — Mihomo 覆写脚本（FlClash / Clash Party / Clash Meta）
 // 本文件由 scripts/build.js 自动生成，请勿手动编辑
 // 覆盖内容：DNS(fake-ip) / Sniffer / 代理组 / rule-providers / rules
 // DNS：arc 缓存、respect-rules + nameserver-policy 防泄漏、fake-ip-filter 含 geosite:cn + 社区 rule-set:fakeip-filter
@@ -8,7 +8,8 @@
 // ============================================================
 
 var MIHOMO_KIT = {
-  "version": "1.4.1",
+  "version": "1.5.0",
+  "variant": "classical",
   "privateCidrs": [
     "127.0.0.0/8",
     "10.0.0.0/8",
@@ -608,17 +609,29 @@ function main(config) {
 
     cfg["proxy-groups"] = groups.concat(regionGroups);
 
-    // ---------- 7. 规则源：yfamilys 分流 + 社区 fake-ip 豁免清单 ----------
+    // ---------- 7. 规则源：业务分流（classical 或 mrs） + 社区 fake-ip 豁免清单 ----------
     var rp = {};
+    var isMrs = D.variant === "mrs";
     D.rulesets.forEach(function (rs) {
-      rp[rs.key] = {
-        type: "http",
-        behavior: "classical",
-        format: "yaml",
-        url: D.ruleBase + "/" + rs.key + ".rule",
-        path: "./providers/rules/" + rs.key + ".yaml",
-        interval: 86400
-      };
+      if (isMrs) {
+        rp[rs.key] = {
+          type: "http",
+          behavior: rs.behavior,
+          format: "mrs",
+          url: D.ruleBase + "/" + rs.path,
+          path: "./providers/rules/mrs-" + rs.key + ".mrs",
+          interval: 86400
+        };
+      } else {
+        rp[rs.key] = {
+          type: "http",
+          behavior: "classical",
+          format: "yaml",
+          url: D.ruleBase + "/" + rs.key + ".rule",
+          path: "./providers/rules/" + rs.key + ".yaml",
+          interval: 86400
+        };
+      }
     });
     // 仅供 dns.fake-ip-filter 的 "rule-set:<key>" 查询，不生成任何 RULE-SET 规则
     rp[D.communityFakeIpFilterKey] = {
@@ -641,7 +654,10 @@ function main(config) {
     D.directRules.forEach(function (r) { rules.push(r); });
     // 修复 Google Play 下载/更新一直「等待中」：services.googleapis.cn 解析到境内 IP，需早于国内分流走代理
     rules.push("DOMAIN-SUFFIX,googleapis.cn," + D.G.strategy);
-    D.rulesets.forEach(function (rs) { rules.push("RULE-SET," + rs.key + "," + rs.target); });
+    D.rulesets.forEach(function (rs) {
+      var suffix = rs.behavior === "ipcidr" ? ",no-resolve" : "";
+      rules.push("RULE-SET," + rs.key + "," + rs.target + suffix);
+    });
     rules.push("GEOIP,CN," + D.G.direct + ",no-resolve");
     // 域名兜底：GEOIP,CN 只靠 IP 判断，解析到境外 CDN 的国内站点会漏；
     // 与 DNS 侧 fake-ip-filter 的 geosite:cn 同源，按域名补判一次再捞回直连（Syzygy33 的 RULE-SET,cn-domain 同思路）
