@@ -111,17 +111,17 @@ var MIHOMO_KIT = {
     {
       "name": "🇺🇸 美国节点",
       "include": "美|us|united ?states|america|洛杉矶|圣何塞|西雅图|凤凰城|los ?angeles|seattle|san ?jose",
-      "exclude": "俄罗斯|russia|新加坡|singapore|韩国|korea|台湾|taiwan|香港|hong ?kong|日本|japan"
+      "exclude": "俄罗斯|russia|新加坡|singapore|韩国|korea|台湾|taiwan|香港|hong ?kong|日本|japan|australia|austria|澳大利亚|奥地利"
     },
     {
       "name": "🇬🇧 英国节点",
       "include": "英|uk|伦敦|london|manchester|曼彻斯特",
-      "exclude": "乌克兰|ukraine"
+      "exclude": "乌克兰|ukraine|日本|japan|fukuoka|福冈"
     },
     {
       "name": "🇩🇪 德国节点",
       "include": "德|germany|柏林|慕尼黑|法兰克福|frankfurt",
-      "exclude": ""
+      "exclude": "印度|india|德里|马德里|阿德莱德"
     },
     {
       "name": "🇷🇺 俄罗斯节点",
@@ -239,16 +239,16 @@ var MIHOMO_KIT = {
       "target": "Ⓜ️ 微软服务"
     },
     {
+      "key": "AppleProxy",
+      "target": "🚀 策略选择"
+    },
+    {
       "key": "Apple",
       "target": "🍎 苹果服务"
     },
     {
       "key": "AppStore",
       "target": "🍎 苹果服务"
-    },
-    {
-      "key": "AppleProxy",
-      "target": "🚀 策略选择"
     },
     {
       "key": "Telegram",
@@ -423,8 +423,13 @@ function main(config) {
     cfg["geox-url"] = mergedGeox;
     delete cfg["global-client-fingerprint"];
     delete cfg["bind-address"];
+    delete cfg["clash-for-android"];
+    if (cfg.tun && typeof cfg.tun === "object" && !Array.isArray(cfg.tun) && cfg.tun.device && !/^utun/i.test(String(cfg.tun.device))) {
+      delete cfg.tun.device;
+    }
     if (!cfg["log-level"]) cfg["log-level"] = "warning";
-    if (!cfg.profile || typeof cfg.profile !== "object") cfg.profile = {};
+    if (!cfg.profile || typeof cfg.profile !== "object" || Array.isArray(cfg.profile)) cfg.profile = {};
+    delete cfg.profile.tracing;
     cfg.profile["store-selected"] = true;
     if (cfg.profile["store-fake-ip"] === undefined) cfg.profile["store-fake-ip"] = true;
 
@@ -485,11 +490,11 @@ function main(config) {
       if (p && p.name && !infoRe.test(p.name)) names.push(p.name);
     }
     var providers = Object.keys(cfg["proxy-providers"] || {});
-    var useProvider = names.length === 0 && providers.length > 0;
+    var hasProvider = providers.length > 0;
 
-    // provider 模式：组的 url 测速只覆盖 proxies 成员，provider 节点必须靠自身 health-check
+    // provider / 混合模式：组的 url 测速只覆盖 proxies 成员，provider 节点必须靠自身 health-check
     // 产出延迟数据，否则地区 url-test 组拿不到延迟、永远停在第一个节点。订阅已有值保留，enable 强制开。
-    if (useProvider) {
+    if (hasProvider) {
       var providerMap = cfg["proxy-providers"];
       for (var pKey in providerMap) {
         var provider = providerMap[pKey];
@@ -530,8 +535,8 @@ function main(config) {
       return g;
     }
 
-    if (useProvider) {
-      // provider 订阅在脚本期看不到节点：用内核 include-all + Go 正则 filter 动态筛选，
+    if (hasProvider) {
+      // 含 proxy-providers 的订阅在脚本期看不到 provider 节点：用内核 include-all + Go 正则 filter 动态筛选（同时兼容内联节点），
       // 全量建地区组，一个节点都没匹配上时由 empty-fallback 落 REJECT，而不是留空组。
       D.regions.forEach(function (r) {
         regionNames.push(r.name);
@@ -564,10 +569,25 @@ function main(config) {
         .map(function (g) { return g.name; })
     );
 
+    var providerFilter = {
+      "exclude-type": "direct|reject",
+      "exclude-filter": "(?i)(" + D.infoNodeRe + ")"
+    };
+    function buildAllNodesGroup(base) {
+      if (hasProvider) {
+        base.use = providers;
+        base["exclude-type"] = providerFilter["exclude-type"];
+        base["exclude-filter"] = providerFilter["exclude-filter"];
+        if (names.length) base.proxies = nodeNames;
+      } else {
+        base.proxies = nodeNames;
+      }
+      return base;
+    }
     var groups = [
       { name: D.G.strategy, type: "select", proxies: strategyOptions },
-      withProbe(useProvider ? { name: D.G.auto, use: providers } : { name: D.G.auto, proxies: nodeNames }),
-      useProvider ? { name: D.G.manual, type: "select", use: providers } : { name: D.G.manual, type: "select", proxies: nodeNames }
+      withProbe(buildAllNodesGroup({ name: D.G.auto })),
+      buildAllNodesGroup({ name: D.G.manual, type: "select" })
     ];
 
     D.appGroups.forEach(function (a) {
@@ -604,7 +624,7 @@ function main(config) {
 
     // ---------- 8. 规则：内网/private 直连 → NTP 直连 → 白名单 → 例外 → 分流 → 兜底 ----------
     var rules = [];
-    D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT"); });
+    D.privateCidrs.forEach(function (c) { rules.push("IP-CIDR," + c + ",DIRECT,no-resolve"); });
     rules.push("GEOSITE,private,DIRECT");
     rules.push("GEOIP,private,DIRECT,no-resolve");
     // 系统对时优先于业务分流：很多节点丢弃/限制 UDP 123，时间偏差会连带让 DoH 的 TLS 证书校验失败
